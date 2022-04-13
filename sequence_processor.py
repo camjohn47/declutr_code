@@ -13,7 +13,19 @@ import random
 from functools import partial
 
 class SequenceProcessor():
-    # Default beta parameters taken from the original DeClutr paper. concentration1 = alpha, 0 = beta.
+    '''
+    Class for building text sequences that can train and validate a DeClutr neural network.
+    For more information on DeClutr or how it's implemented in this project, please view original paper
+    https://arxiv.org/abs/2006.03659 or read the documentation in declutr_model.py.
+
+    The main role of this class is to randomly sample documents from a collection of documents and
+    sample subsets of these documents to build batches. The sequences are tokenized and prepared for
+    These text sequence batches include binary labels
+    describing the positive or negative relationship between them and the anchor.
+
+    Default beta parameters taken from the original DeClutr paper concentration1 = alpha, 0 = beta.
+    '''
+
     anchor_args = dict(concentration1=4, concentration0=2)
     positive_sampling_args = dict(concentration1=2, concentration0=4)
 
@@ -305,16 +317,10 @@ class SequenceProcessor():
             # Build input sequences and a label sequence describing their classes as generator output.
             tokens_chunk = document_chunk['document_tokens'].values
             batch_input_sequences = self.build_batch_input_sequences(tokens_chunk)
-            #print(f'UPDATE: Initial batch inputs length = {len(batch_input_sequences)}')
-            batch_paths = document_chunk['script_path'].values
             batch_labels, positive_document_ind = self.build_batch_label_sequence(batch_input_sequences)
-            #print(f'UPDATE: After build batch label seq, batch inputs length = {len(batch_input_sequences)}')
             anchor, batch_input_sequences = self.extract_anchor_from_inputs(batch_input_sequences, positive_document_ind)
-            #print(f'UPDATE: After anchor extraction, anchor length = {len(anchor)}, batch inputs length = {len(batch_input_sequences)}')
             anchor, batch_input_sequences = self.determine_padding(anchor, batch_input_sequences)
-            #print(f'UPDATE: After padding determination, anchor length = {len(anchor)}, batch inputs length = {len(batch_input_sequences)}')
             anchor, batch_input_sequences = self.convert_anchor_and_inputs(anchor, batch_input_sequences)
-            #print(f'UPDATE: After conversion, anchor shape = {anchor.shape}, batch inputs shape = {batch_input_sequences.shape}')
             batch_labels = self.process_batch_labels(batch_labels)
 
             #print(f'UPDATE: Final anchor shape = {anchor.shape}, batch inputs shape = {batch_input_sequences.shape},'
