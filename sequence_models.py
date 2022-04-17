@@ -14,6 +14,8 @@ from pathlib import Path
 
 tf.executing_eagerly()
 
+from itertools import product
+
 class PWFF(Layer):
     # Point-wise feed forward neural network. Implemented as a Keras layer.
     def __init__(self, units=100):
@@ -56,6 +58,7 @@ class TransformerEncoder(Layer):
 
     def call(self, inputs):
         inputs = self.embedding(inputs)
+        print(f'UPDATE: Transformer encoder attention weights: {self.self_attention.trainable_weights}')
 
         if tf.rank(inputs) == 2:
             inputs = tf.expand_dims(inputs, axis=0)
@@ -174,12 +177,12 @@ class DeClutrModel(Model):
 
     The contrastive loss function, combined with DeClutr's nearby anchor positive sampling strategy,
     encourages aligned orientation and location for similar documents in the embedding space. Similarly,
-    negative sample predictions are penalized. More specifically, embeddings between dissimilar documents
-    are separated and their angles diverged.
+    negative sample predictions are penalized. Embeddings between dissimilar documents
+    separate and their angles diverge when they're incorrectly classified as a sequence pair.
 
-    Each span begins with a randomly sampled starting point and randomly sampled length that covers a
-    versatile range of three different positive sample types: contained, partial overlap, and adjacent.
-    Also, both hard and soft negative samples are included, where hard negative samples are from the
+    Each span begins with a randomly sampled starting point and randomly sampled length. Positive sampling
+    covers a diverse range of three distinct positive sample types: contained, partially overlapped,
+    and adjacent. Both hard and soft negative samples are included. Hard negative samples are from the
     same document, and soft negative samples are from different documents. The result is a comprehensive,
     continuous output representation.
     '''
@@ -193,7 +196,7 @@ class DeClutrModel(Model):
                               'transformer': TRANSFORMER_ARGS}
 
     def __init__(self, batch_size, pretrained_encoder=None, pretrained_encoder_name=None, encoder_config={},
-                 encoder_model='lstm', input_dim=None, model_id='test'):
+                 encoder_model='lstm', input_dim=None, model_id='test', masked_token=-1):
 
         super().__init__()
         self.pretrained_encoder_name = pretrained_encoder_name
@@ -217,6 +220,8 @@ class DeClutrModel(Model):
         self.model_dir = os.path.join('models', model_id)
         print(f'UPDATE: Creating model directory {self.model_dir}.')
         Path(self.model_dir).mkdir(exist_ok=True, parents=True)
+
+        self.masked_token = masked_token
 
     def initialize_encoder(self, pretrained_encoder, encoder_model, input_dim=None):
         if pretrained_encoder and not self.pretrained_encoder_name:
@@ -305,7 +310,63 @@ class DeClutrModel(Model):
         # Probabilities of each input sequence in the batch being the positive sample for the anchor.
         positive_sequence_probs = self.softmax(scores)
         positive_sequence_probs = tf.expand_dims(positive_sequence_probs, axis=0)
+        #print(f'UPDATE: Positive sequence probs = {positive_sequence_probs}.')
         return positive_sequence_probs
+
+    def find_masked_indices(self, tensor):
+        masked_indices = tf.where(tensor == self.masked_token)
+        return masked_indices
+
+
+class DeclutrMaskedLanguage(DeClutrModel):
+    def __init__(self, masked_vocabulary_size, declutr_args={}):
+        self.declutr_args = declutr_args
+        super().__init__(**self.declutr_args)
+        self.masked_vocabulary_size = masked_vocabulary_size
+
+        # Dense layer that expresses each masked word's probability as a linear combination of
+        # the masked word embeddings.
+        self.masked_vocabulary_dense = Dense(units=self.masked_vocabulary_size)
+
+    def get_config(self):
+        config = super().get_config()
+        config['masked_vocabulary_size'] = self.masked_vocabulary_size
+        return config
+
+    def gather_masked_embeddings(self, masked_sequence, embeddings):
+        '''
+        Inputs
+        masked_sequence (Tensor): Original masked token sequence from which embeddings were made.
+        embeddings (
+
+        Outputs
+        A (N x embedding dims)-shaped tensor with the embedding vectors for the N masked out tokens.
+        '''
+
+        masked_indices = self.find_masked_indices(masked_sequence)
+        print(f'UPDATE: Masked anchor={masked_sequence}, masked indices = {masked_indices}')
+        embedding_rank = tf.rank(embeddings)
+        other_dim_domains = [range(embeddings.shape[dim]) for dim in range(1, embedding_rank)]
+        print(f'UPDATE: Other dim domains: {other_dim_domains}')
+        masked_embedding_indices = list(product(masked_indices, *other_dim_domains))
+        print(f'UPDATE: Masked embedding indices: {masked_embedding_indices}')
+        masked_embeddings = tf.gather(embeddings, masked_embedding_indices)
+        return masked_embeddings
+
+    def call(self, inputs):
+        '''
+        Return output word probabilities of a masked token sequence.
+
+        Inputs
+        inputs: A masked out, tokenized anchor span.
+        '''
+
+        masked_anchor = inputs['masked_anchor']
+        embedded_anchor = self.anchor_encoder_helper(masked_anchor)
+        masked_embeddings = self.gather_masked_embeddings(embedded_anchor)
+        masked_vocabulary_probs = self.masked_vocabulary_dense(masked_embeddings)
+        return masked_vocabulary_probs
+
 
 
 
