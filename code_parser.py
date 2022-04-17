@@ -1,3 +1,4 @@
+import shutil
 from glob import glob
 import os
 import sys
@@ -6,6 +7,7 @@ import json
 import pandas as pd
 
 import re
+import gzip
 
 class CodeParser():
     '''
@@ -16,23 +18,53 @@ class CodeParser():
     Java and C++.
     '''
 
-    CODE_TYPE_TO_EXTENSION = dict(python='.py', java='.java')
+    PROGRAMMING_LANGUAGE_TO_EXTENSION = dict(python='.py', java='.java', c=".c", all='.*')
+    EXTENTSION_TO_PROGRAMING_LANGUAGE = {extension: language for language, extension in PROGRAMMING_LANGUAGE_TO_EXTENSION.items()}
+    CODE_EXTENSIONS = [".py", ".java", ".c"]
 
-    def __init__(self, code_type='python'):
+    def __init__(self, code_type='all', subset='train'):
         self.code_type = code_type
-        codesearch_prefix = f'{self.code_type}_train_'
+        codesearch_prefix = f'{self.code_type}_{subset}_' if self.code_type != 'all' else f'_{subset}_'
         self.is_codesearch_payload = lambda path: codesearch_prefix in path
 
-        if self.code_type not in self.CODE_TYPE_TO_EXTENSION:
-            print(f'ERROR: Code type {self.code_type} not in code type to extension {self.CODE_TYPE_TO_EXTENSION}.')
+        if self.code_type not in self.PROGRAMMING_LANGUAGE_TO_EXTENSION:
+            print(f'ERROR: Code type {self.code_type} not in code type to extension {self.PROGRAMMING_LANGUAGE_TO_EXTENSION}.')
             sys.exit(1)
 
-        self.code_extension = self.CODE_TYPE_TO_EXTENSION[self.code_type]
+        self.code_extension = self.PROGRAMMING_LANGUAGE_TO_EXTENSION[self.code_type]
 
-    def get_code_search_paths(self, code_directory):
-        json_paths = glob(os.path.join(code_directory, '*.jsonl'))
+    def get_code_search_paths(self, code_directory, extension):
+        json_paths = glob(os.path.join(code_directory, f'*{extension}'))
         codesearch_paths = list(filter(self.is_codesearch_payload, json_paths))
         return codesearch_paths
+
+    def unzip_payload_gzip(self, payload_path):
+        if '.jsonl' not in payload_path:
+            print(f'WARNING: Non-jsonl file passed to unzip method. ')
+            return
+        elif '.gz' not in payload_path:
+            print(f'WARNING: Non-gzip file passed to unzip method. ')
+            return
+
+        print(f'UPDATE: Opening gzip file {payload_path}.')
+        content = gzip.open(payload_path, 'r').read()
+        jsonl_path = payload_path.replace('.gz', '')
+        print(f'UPDATE: Writing content to jsonl path={jsonl_path}.')
+        file = open(jsonl_path, 'wb')
+        file.write(content)
+
+    def get_all_script_paths(self, script_directory):
+        script_paths = []
+
+        for extension in self.CODE_EXTENSIONS:
+            extension_paths = glob(os.path.join(script_directory, f"*{extension}"))
+            script_paths += extension_paths
+
+        return script_paths
+
+    def unpack_gzip_paths(self, gzip_paths):
+        for gzip_path in gzip_paths:
+            self.unzip_payload_gzip(gzip_path)
 
     def code_directory_to_df(self, script_directory, shuffle=True):
         '''
@@ -40,28 +72,37 @@ class CodeParser():
         into a document-based dataframe for use by a DeClutr model.
         '''
 
-        script_paths = glob(os.path.join(script_directory, f'*.{self.code_extension}'))
+        script_path_pattern = os.path.join(script_directory, f'*{self.code_extension}')
+        script_paths = glob(script_path_pattern) if self.code_type != 'all' else self.get_all_script_paths(script_directory)
+        is_gzip = lambda path: '.gz' in path
+        #print(f'UPDATE: Script paths = {script_paths}, is gzip(paths) = {list(map(is_gzip, script_paths))}')
         script_df = []
 
         for script_path in script_paths:
+            # Unpack gzip file into new json location and continue, rather than un-packing json payload.
+            # The unpacked jsonl file will be loaded and parsed later.
+            print(f'UPDATE: CodeParser reading from {script_path}')
             script_code = open(script_path, 'r').read()
-            script_df.append(dict(document=script_code, script_path=script_path, script_directory=script_directory))
+            extension = "." + script_path.split('.')[-1]
+            programming_language = self.EXTENTSION_TO_PROGRAMING_LANGUAGE[extension]
+            script_df.append(dict(document=script_code, script_path=script_path, script_directory=script_directory,
+                                  programming_language=programming_language))
 
         script_df = pd.DataFrame(script_df)
         next_script_directories = [x for x in glob(os.path.join(script_directory, '*')) if os.path.isdir(x)]
 
-        if next_script_directories:
-           #print(f'UPDATE: Building code dataframes for newly found code directories: {next_script_directories}.')
-            for next_script_directory in next_script_directories:
-                new_script_df = self.code_directory_to_df(next_script_directory)
-                script_df = pd.concat([script_df, new_script_df])
+        for next_script_directory in next_script_directories:
+            new_script_df = self.code_directory_to_df(next_script_directory)
+            script_df = pd.concat([script_df, new_script_df])
 
-        code_search_paths = self.get_code_search_paths(script_directory)
+        code_search_gzip_paths = self.get_code_search_paths(script_directory, ".gz")
+        self.unpack_gzip_paths(code_search_gzip_paths)
+        code_search_paths = self.get_code_search_paths(script_directory, ".jsonl")
+
         if code_search_paths:
             print(f'UPDATE: CodeSearch paths = {code_search_paths} found. Beginning parsing.')
             code_search_dfs = [self.parse_codesearch_payload(code_search_path) for code_search_path in code_search_paths]
             code_search_df = pd.concat(code_search_dfs)
-            print(f'UPDATE: Codesearch paths produced {len(code_search_df)} documents.')
             script_df = pd.concat([script_df, code_search_df])
 
         # Shuffle the dataframe so that chunks taken from it are unbiased.
@@ -75,34 +116,17 @@ class CodeParser():
         CodeSearch jsonl file.
 
         Outputs
-        code_search_df (DataFrame): Document-based dataframe containing scripts and other meta data for
-                                    the scripts found in input JSONL file.
+        code_search_df (DataFrame): Document-based dataframe containing scripts and other meta data
+                                    for the scripts found in input JSONL file.
         '''
 
         file = open(codesearch_payload, 'r')
         payloads = file.read()
         payloads = [json.loads(payload) for payload in payloads.splitlines()]
-        code_payloads = [payload['code'] for payload in payloads]
-        code_paths = [payload['path'] for payload in payloads]
-        code_urls = [payload['url'] for payload in payloads]
-        parsed_payloads = list(zip(code_payloads, code_paths, code_urls))
-        codesearch_rows = [dict(document=payload[0], script_path=payload[1], script_directory=payload[2])
-                           for payload in parsed_payloads]
+        codesearch_rows = [dict(document=payload['code'], script_path=payload['path'], script_directory=payload["url"],
+                                programming_language=payload["language"]) for payload in payloads]
         code_search_df = pd.DataFrame(codesearch_rows)
         return code_search_df
-
-    def find_code_df_methods(self, code_df):
-        '''
-        Returns tokens containing methods that were invoked and the indices where they occurred in respective sequences.
-        '''
-
-        # This works for Python and Java, but not
-        get_script_methods = lambda row: re.findall(r'(?<=[/(])\w+', row['script_path'])
-        code_df['methods'] = code_df.apply(get_script_methods, axis=1)
-        print(code_df['methods'].value_counts())
-        return code_df
-
-   # def unzip_codesearch_payload(self, codesearch_payload):
 
     #def build_method_vocabulary(self, code_df, ):
 
