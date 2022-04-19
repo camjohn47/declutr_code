@@ -19,7 +19,7 @@ class SequenceProcessor():
     '''
     Class for building text sequences that can train and validate a DeClutr neural network.
     For more information on DeClutr or how it's implemented in this project, please view original paper
-    https://arxiv.org/abs/2006.03659 or read the documentation in declutr_model.py.
+    https://arxiv.org/abs/2006.03659 or read the documentation in sequence_models.py.
 
     The main role of this class is to randomly sample documents from a collection of documents and
     sample subsets of these documents to build batches. The sequences are tokenized and prepared for
@@ -32,11 +32,10 @@ class SequenceProcessor():
     anchor_args = dict(concentration1=4, concentration0=2)
     positive_sampling_args = dict(concentration1=2, concentration0=4)
 
-    def __init__(self, tokenizer_args={}, min_anchor_length=32, max_anchor_length=112, anchor_args={},
+    def __init__(self, loss_objective, tokenizer_args={}, min_anchor_length=32, max_anchor_length=112, anchor_args={},
                  positive_sampling_args={}, anchors_per_document=1, num_positive_samples=1, documents_per_batch=32,
                  chunk_size=int(1.0e3), max_document_length=512, pretrained_tokenizer=False, tokenizer_type=None,
-                 tokenizer=None, sample_documents_with_replacement=False, pad_sequences=False, mmm_sample=.1,
-                 loss_objective="contrastive"):
+                 tokenizer=None, sample_documents_with_replacement=False, pad_sequences=False, mmm_sample=.1):
         self.min_anchor_length = min_anchor_length
         self.max_anchor_length = max_anchor_length
 
@@ -71,14 +70,15 @@ class SequenceProcessor():
 
         # Define the processor's loss function objective. Then find method for generating a dataset for
         # this objective.
-        self.LOSS_OBJECTIVE_TO_DATASET_METHOD = dict(contrastive=self.get_declutr_contrastive_dataset,
-                                                     contrastive_and_masked_method=self.get_declutr_conrastive_mmm_dataset)
+        self.LOSS_OBJECTIVE_TO_DATASET_METHOD = dict(declutr_contrastive=self.get_declutr_contrastive_dataset,
+                                                     declutr_masked_language=self.get_declutr_mmm_dataset)
         if loss_objective not in self.LOSS_OBJECTIVE_TO_DATASET_METHOD:
             print(f'ERROR: Loss objective {loss_objective} not in {self.LOSS_OBJECTIVE_TO_DATASET_METHOD}. ')
             sys.exit(1)
 
         self.loss_objective = loss_objective
         self.dataset_method = self.LOSS_OBJECTIVE_TO_DATASET_METHOD[self.loss_objective]
+        self.method_vocabulary = None
 
     def initialize_tokenizer(self, tokenizer, tokenizer_type):
         # If pre-trained tokenizer is specified, the type and tokenizer itself must be provided.
@@ -108,11 +108,17 @@ class SequenceProcessor():
 
         # Default documents per chunk is set to be documents per batch.
         documents_per_chunk = documents_per_chunk if documents_per_chunk else self.documents_per_batch
-        document_inds = range(len(df))
-        print(f'UPDATE: Document ind count = {len(document_inds)}')
+        document_count = len(df)
+        document_inds = range(document_count)
 
         for document_ind in document_inds:
-            chunk_index_range = [document_ind] + random.sample(document_inds, k=documents_per_chunk - 1)
+            negative_sample_count = min(document_count, documents_per_chunk - 1)
+
+            if negative_sample_count < documents_per_chunk - 1:
+                print(f'WARNING: Document df has {document_count} events -> less than requested negative '
+                      f'sample count = {negative_sample_count}.')
+
+            chunk_index_range = [document_ind] + random.sample(document_inds, k=negative_sample_count)
             df_chunk = df.take(chunk_index_range)
             yield df_chunk
 
@@ -331,7 +337,7 @@ class SequenceProcessor():
         return anchor, input_sequences
 
     # TO DO: Test training time and memory usage for batch yielding vs. dataset.
-    def yield_declutr_training_batches(self, document_df):
+    def yield_declutr_contrastive_batches(self, document_df):
         '''
         Inputs
         document_df (dataframe): Dataframe containing documents.
@@ -357,23 +363,35 @@ class SequenceProcessor():
             anchor, batch_input_sequences = self.determine_padding(anchor, batch_input_sequences)
             anchor, batch_input_sequences = self.convert_anchor_and_inputs(anchor, batch_input_sequences)
             batch_labels = self.process_batch_labels(batch_labels)
-            print(f'UPDATE: Final batch labels: {batch_labels}.')
+            #print(f'UPDATE: Final batch labels: {batch_labels}.')
             yield {'anchor_sequence':anchor, 'contrasted_sequences': batch_input_sequences}, batch_labels
 
-    def yield_contrsative_and_mmm_batches(self, document_df):
+    def yield_declutr_mmm_batches(self, document_df):
         '''
         Add masked anchor to inputs and labels of masked tokens to labels. This allows for masked method
         modeling.
         '''
 
-        self.build_method_vocabulary(document_df)
+        if not self.method_vocabulary:
+            print(f'WARNING: Declutr MMM batches called without method vocabulary. Building method '
+                  f'vocab now.')
+            self.build_method_vocabulary(document_df)
 
-        for inputs, labels in self.yield_declutr_training_batches(document_df):
+        for inputs, labels in self.yield_declutr_contrastive_batches(document_df):
             anchor = inputs["anchor_sequence"]
             mmm_inputs, mmm_labels = self.build_mmm_inputs(anchor)
-            inputs["masked_anchor"] = mmm_inputs
-            full_labels = dict(contrastive_labels=labels, mmm_labels=mmm_labels)
-            yield inputs, full_labels
+            no_methods_found = mmm_labels.shape[0] == 0
+
+            if no_methods_found:
+                print(f'WARNING: No methods found in anchor sequence. Skipping this MMM batch.')
+                continue
+
+            if not mmm_inputs:
+                print(f'WARNING: Empty masked anchor sequence. Skipping this MMM batch.')
+                continue
+
+            print(f'UPDATE: mmm inputs length = {len(mmm_inputs)}.')
+            yield mmm_inputs, mmm_labels
 
     def build_method_vocabulary(self, code_df):
         if 'methods' not in code_df.columns:
@@ -386,6 +404,11 @@ class SequenceProcessor():
 
         methods = list(chain.from_iterable(code_df['methods'].values.tolist()))
         self.method_vocabulary = [method for method in methods if method in self.tokenizer.word_index]
+        self.MASKED_INDEX = len(self.method_vocabulary)
+        self.method_vocabulary.append(self.MASKED_INDEX)
+        self.tokenizer.fit_on_texts(["MASKED"])
+        print(f'UPDATE: Sequence processor method vocab size: {len(self.method_vocabulary)}, '
+              f'masked index = {self.MASKED_INDEX}.')
 
     def build_mmm_inputs(self, anchor_sequence):
         '''
@@ -400,31 +423,16 @@ class SequenceProcessor():
                               token.
         '''
 
-        self.method_tokens = [self.tokenizer.word_index[method] for method in self.method_vocabulary]
+        self.method_tokens = [self.tokenizer.word_index[method] for method in self.method_vocabulary if method != self.MASKED_INDEX]
         anchor_method_inds = [i for i, token in enumerate(anchor_sequence) if token in self.method_tokens]
         masked_out_method_count = int(self.mmm_sample * len(anchor_method_inds))
         masked_out_inds = random.sample(anchor_method_inds, k=masked_out_method_count)
 
         # Replace masked out tokens with -1. +
-        masked_out_anchor_sequence = [token if i not in masked_out_inds else -1 for i, token in enumerate(anchor_sequence)]
-        masked_out_labels = [anchor_sequence[i] for i in masked_out_inds]
-        return masked_out_anchor_sequence, masked_out_labels
-
-    def get_declutr_conrastive_mmm_dataset(self, document_df):
-        '''
-        Process and return a DeClutr dataset from the input document dataframe.
-        '''
-
-        # Get tensor spec from sampled batch.
-        input_sample = next(self.yield_contrsative_and_mmm_batches(document_df))[0]
-        contrasted_sample = input_sample['contrasted_sequences']
-        input_spec = dict(anchor_sequence=tf.TensorSpec(shape=(None,), dtype=tf.int32),
-                          contrasted_sequences=tf.type_spec_from_value(contrasted_sample))
-        output_signature = (input_spec, tf.TensorSpec(shape=(1, self.batch_size), dtype=tf.int32))
-        print(f'UPDATE: Output signature for Declutr dataset: {output_signature}.')
-        gen = partial(self.yield_declutr_training_batches, document_df=document_df)
-        dataset = Dataset.from_generator(gen, output_signature=output_signature)
-        return dataset
+        masked_out_anchor_sequence = [token if i not in masked_out_inds else self.MASKED_INDEX for i, token in enumerate(anchor_sequence)]
+        masked_out_tokens = [anchor_sequence[i] for i in masked_out_inds]
+        masked_out_one_hot = tf.one_hot(indices=masked_out_tokens, depth=self.get_method_vocab_size())
+        return masked_out_anchor_sequence, masked_out_one_hot
 
     def get_declutr_contrastive_dataset(self, document_df):
         '''
@@ -432,13 +440,27 @@ class SequenceProcessor():
         '''
 
         # Get tensor spec from sampled batch.
-        input_sample = next(self.yield_declutr_training_batches(document_df))[0]
+        input_sample = next(self.yield_declutr_contrastive_batches(document_df))[0]
         contrasted_sample = input_sample['contrasted_sequences']
         input_spec = dict(anchor_sequence=tf.TensorSpec(shape=(None,), dtype=tf.int32),
                           contrasted_sequences=tf.type_spec_from_value(contrasted_sample))
         output_signature = (input_spec, tf.TensorSpec(shape=(1, self.batch_size), dtype=tf.int32))
+        print(f'UPDATE: Output signature for Declutr dataset: {output_signature}.')
+        gen = partial(self.yield_declutr_contrastive_batches, document_df=document_df)
+        dataset = Dataset.from_generator(gen, output_signature=output_signature)
+        return dataset
+
+    def get_declutr_mmm_dataset(self, document_df):
+        '''
+        Process and return a DeClutr dataset from the input document dataframe.
+        '''
+
+        # Get tensor spec from sampled batch.
+        input_spec = tf.TensorSpec(shape=(None,), dtype=tf.int32)
+        method_count = self.get_method_vocab_size()
+        output_signature = (input_spec, tf.TensorSpec(shape=(None, method_count), dtype=tf.int32))
         print(f'UPDATE: Output signature = {output_signature}')
-        gen = partial(self.yield_declutr_training_batches, document_df=document_df)
+        gen = partial(self.yield_declutr_mmm_batches, document_df=document_df)
         dataset = Dataset.from_generator(gen, output_signature=output_signature)
         return dataset
     
@@ -456,6 +478,9 @@ class SequenceProcessor():
             vocab_size = len(self.tokenizer.get_vocab())
 
         return vocab_size
+
+    def get_method_vocab_size(self):
+        return len(self.method_vocabulary)
 
     def build_batch_inputs(self, document_df):
         '''
