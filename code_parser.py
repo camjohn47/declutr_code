@@ -46,12 +46,15 @@ class CodeParser():
             print(f'WARNING: Non-gzip file passed to unzip method. ')
             return
 
-        print(f'UPDATE: Opening gzip file {payload_path}.')
-        content = gzip.open(payload_path, 'r').read()
         jsonl_path = payload_path.replace('.gz', '')
-        print(f'UPDATE: Writing content to jsonl path={jsonl_path}.')
-        file = open(jsonl_path, 'wb')
-        file.write(content)
+
+        # Write to jsonl path only if the file doesn't already exist.
+        if not os.path.exists(jsonl_path):
+            print(f'UPDATE: Opening gzip file {payload_path}.')
+            content = gzip.open(payload_path, 'r').read()
+            print(f'UPDATE: Writing content to jsonl path={jsonl_path}.')
+            file = open(jsonl_path, 'wb')
+            file.write(content)
 
     def get_all_script_paths(self, script_directory):
         script_paths = []
