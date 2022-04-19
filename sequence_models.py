@@ -16,6 +16,8 @@ tf.executing_eagerly()
 
 from itertools import product
 
+import numpy as np
+
 class PWFF(Layer):
     # Point-wise feed forward neural network. Implemented as a Keras layer.
     def __init__(self, units=100):
@@ -166,7 +168,7 @@ class LSTMEncoder(Layer):
 
         return encoded_inputs
 
-class DeClutrModel(Model):
+class DeClutrContrastive(Model):
     '''
     Implementation of the DeClutr approach for self-supervised sentence and document embeddings:https://arxiv.org/abs/2006.03659.
     The main learning objective is to identify the associated document with an anchor document using their
@@ -196,7 +198,7 @@ class DeClutrModel(Model):
                               'transformer': TRANSFORMER_ARGS}
 
     def __init__(self, batch_size, pretrained_encoder=None, pretrained_encoder_name=None, encoder_config={},
-                 encoder_model='lstm', input_dim=None, model_id='test', masked_token=-1):
+                 encoder_model='lstm', input_dim=None, model_id='test'):
 
         super().__init__()
         self.pretrained_encoder_name = pretrained_encoder_name
@@ -220,8 +222,6 @@ class DeClutrModel(Model):
         self.model_dir = os.path.join('models', model_id)
         print(f'UPDATE: Creating model directory {self.model_dir}.')
         Path(self.model_dir).mkdir(exist_ok=True, parents=True)
-
-        self.masked_token = masked_token
 
     def initialize_encoder(self, pretrained_encoder, encoder_model, input_dim=None):
         if pretrained_encoder and not self.pretrained_encoder_name:
@@ -313,13 +313,9 @@ class DeClutrModel(Model):
         #print(f'UPDATE: Positive sequence probs = {positive_sequence_probs}.')
         return positive_sequence_probs
 
-    def find_masked_indices(self, tensor):
-        masked_indices = tf.where(tensor == self.masked_token)
-        return masked_indices
 
-
-class DeclutrMaskedLanguage(DeClutrModel):
-    def __init__(self, masked_vocabulary_size, declutr_args={}):
+class DeclutrMaskedLanguage(DeClutrContrastive):
+    def __init__(self, masked_vocabulary_size, masked_token, **declutr_args):
         self.declutr_args = declutr_args
         super().__init__(**self.declutr_args)
         self.masked_vocabulary_size = masked_vocabulary_size
@@ -328,16 +324,26 @@ class DeclutrMaskedLanguage(DeClutrModel):
         # the masked word embeddings.
         self.masked_vocabulary_dense = Dense(units=self.masked_vocabulary_size)
 
+        # Integer denoting an input token has been masked.
+        self.masked_token = masked_token
+
     def get_config(self):
         config = super().get_config()
         config['masked_vocabulary_size'] = self.masked_vocabulary_size
         return config
 
+    def find_masked_indices(self, tensor):
+        masked_indices = tf.where(tensor == self.masked_token).numpy()
+        masked_shape = masked_indices.shape
+        print(f'UPDATE: Masked index shape = {masked_shape}')
+        masked_indices = masked_indices.tolist() if masked_shape != (1, 1) else masked_indices.tolist()[0]
+        return masked_indices
+
     def gather_masked_embeddings(self, masked_sequence, embeddings):
         '''
         Inputs
         masked_sequence (Tensor): Original masked token sequence from which embeddings were made.
-        embeddings (
+        embeddings (sequence length x embedding dim): Token embeddings of an anchor sequence.
 
         Outputs
         A (N x embedding dims)-shaped tensor with the embedding vectors for the N masked out tokens.
@@ -345,12 +351,11 @@ class DeclutrMaskedLanguage(DeClutrModel):
 
         masked_indices = self.find_masked_indices(masked_sequence)
         print(f'UPDATE: Masked anchor={masked_sequence}, masked indices = {masked_indices}')
-        embedding_rank = tf.rank(embeddings)
-        other_dim_domains = [range(embeddings.shape[dim]) for dim in range(1, embedding_rank)]
-        print(f'UPDATE: Other dim domains: {other_dim_domains}')
-        masked_embedding_indices = list(product(masked_indices, *other_dim_domains))
-        print(f'UPDATE: Masked embedding indices: {masked_embedding_indices}')
-        masked_embeddings = tf.gather(embeddings, masked_embedding_indices)
+        masked_embeddings = tf.gather(embeddings, masked_indices, axis=0)
+
+        if tf.rank(masked_embeddings) == 3:
+            masked_embeddings = tf.squeeze(masked_embeddings, axis=1)
+
         return masked_embeddings
 
     def call(self, inputs):
@@ -361,10 +366,14 @@ class DeclutrMaskedLanguage(DeClutrModel):
         inputs: A masked out, tokenized anchor span.
         '''
 
-        masked_anchor = inputs['masked_anchor']
+        masked_anchor = inputs
+        print(f'UPDATE: Masked anchor = {masked_anchor}')
         embedded_anchor = self.anchor_encoder_helper(masked_anchor)
-        masked_embeddings = self.gather_masked_embeddings(embedded_anchor)
+        print(f'UPDATE: Embedded anchor shape = {embedded_anchor.shape}')
+        masked_embeddings = self.gather_masked_embeddings(masked_anchor, embedded_anchor)
+        print(f'UPDATE: Masked embeddings shape = {masked_embeddings.shape}')
         masked_vocabulary_probs = self.masked_vocabulary_dense(masked_embeddings)
+        print(f'UPDATE: Masked vocab probs = {masked_vocabulary_probs}')
         return masked_vocabulary_probs
 
 
