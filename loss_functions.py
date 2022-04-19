@@ -1,5 +1,5 @@
 from tensorflow.keras.losses import Loss
-from tensorflow.keras.losses import CategoricalCrossEntropy
+from tensorflow.keras.losses import categorical_crossentropy
 
 import sys
 
@@ -11,9 +11,7 @@ class MaskedMethodLoss(Loss):
         return super().get_config()
 
     def call(self, outputs, labels):
-        mlm_outputs = outputs['mlm']
-        mlm_labels = labels['mlm']
-        mlm_loss = CategoricalCrossEntropy(mlm_outputs, mlm_labels)
+        mlm_loss = categorical_crossentropy(outputs, labels)
         return mlm_loss
 
 class ContrastiveLoss(Loss):
@@ -26,7 +24,7 @@ class ContrastiveLoss(Loss):
     def call(self, outputs, labels):
         contrastive_outputs = outputs['contrastive']
         contrastive_labels = labels['contrastive']
-        contrastive_loss = CategoricalCrossEntropy(contrastive_outputs, contrastive_labels)
+        contrastive_loss = categorical_crossentropy(contrastive_outputs, contrastive_labels)
         return contrastive_loss
 
 class DeclutrLoss(Loss):
@@ -41,6 +39,7 @@ class DeclutrLoss(Loss):
             sys.exit(1)
 
         self.objective = objective
+        self.loss = self.OBJECTIVE_LOSSES[self.objective]()
 
     def get_config(self):
         config = super().get_config()
@@ -50,7 +49,7 @@ class DeclutrLoss(Loss):
     def contrastive_loss(self, outputs, labels):
         contrastive_outputs = outputs['contrastive']
         contrastive_labels = labels['contrastive']
-        contrastive_loss = CategoricalCrossEntropy(contrastive_outputs, contrastive_labels)
+        contrastive_loss = categorical_crossentropy(contrastive_outputs, contrastive_labels)
         return contrastive_loss
 
     def call(self, declutr_outputs, declutr_labels):
@@ -68,10 +67,5 @@ class DeclutrLoss(Loss):
         masked method loss = cross entropy(masked method predictions, masked method labels).
         '''
 
-        if self.objective == 'contrastive':
-            declutr_loss = ContrastiveLoss(declutr_outputs, declutr_labels)
-        elif self.objective == 'masked_method':
-            declutr_loss = MaskedMethodLoss(declutr_outputs, declutr_labels)
-        else:
-            declutr_loss = ContrastiveLoss(declutr_outputs, declutr_labels) + MaskedMethodLoss(declutr_outputs, declutr_labels)
+        declutr_loss = self.loss(declutr_outputs, declutr_labels)
         return declutr_loss
