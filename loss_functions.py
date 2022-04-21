@@ -21,10 +21,12 @@ class ContrastiveLoss(Loss):
     def get_config(self):
         return super().get_config()
 
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
+
     def call(self, outputs, labels):
-        contrastive_outputs = outputs['contrastive']
-        contrastive_labels = labels['contrastive']
-        contrastive_loss = categorical_crossentropy(contrastive_outputs, contrastive_labels)
+        contrastive_loss = categorical_crossentropy(outputs, labels)
         return contrastive_loss
 
 class DeclutrLoss(Loss):
