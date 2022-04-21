@@ -9,6 +9,8 @@ import pandas as pd
 import re
 import gzip
 
+from tensorflow.keras.utils import Progbar
+
 class CodeParser():
     '''
     A class for searching and parsing through scripts containing code to build dataframes for DeClutr
@@ -50,18 +52,21 @@ class CodeParser():
 
         # Write to jsonl path only if the file doesn't already exist.
         if not os.path.exists(jsonl_path):
-            print(f'UPDATE: Opening gzip file {payload_path}.')
             content = gzip.open(payload_path, 'r').read()
-            print(f'UPDATE: Writing content to jsonl path={jsonl_path}.')
+            print(f'UPDATE: Writing content to jsonl path = {jsonl_path} from gzip path = {payload_path}.')
             file = open(jsonl_path, 'wb')
             file.write(content)
 
     def get_all_script_paths(self, script_directory):
+        script_path_pattern = os.path.join(script_directory, f'*{self.code_extension}')
         script_paths = []
 
-        for extension in self.CODE_EXTENSIONS:
-            extension_paths = glob(os.path.join(script_directory, f"*{extension}"))
-            script_paths += extension_paths
+        if self.code_type != 'all':
+            script_paths = glob(script_path_pattern)
+        else:
+            for extension in self.CODE_EXTENSIONS:
+                extension_paths = glob(os.path.join(script_directory, f"*{extension}"))
+                script_paths += extension_paths
 
         return script_paths
 
@@ -75,21 +80,19 @@ class CodeParser():
         into a document-based dataframe for use by a DeClutr model.
         '''
 
-        script_path_pattern = os.path.join(script_directory, f'*{self.code_extension}')
-        script_paths = glob(script_path_pattern) if self.code_type != 'all' else self.get_all_script_paths(script_directory)
-        is_gzip = lambda path: '.gz' in path
-        #print(f'UPDATE: Script paths = {script_paths}, is gzip(paths) = {list(map(is_gzip, script_paths))}')
+        script_paths = self.get_all_script_paths(script_directory)
         script_df = []
+        script_count = len(script_paths)
+        print(f'UPDATE: CodeParser reading scripts in directory = {script_directory}')
+        progress_bar = Progbar(target=script_count)
 
-        for script_path in script_paths:
-            # Unpack gzip file into new json location and continue, rather than un-packing json payload.
-            # The unpacked jsonl file will be loaded and parsed later.
-            print(f'UPDATE: CodeParser reading from {script_path}')
+        for i, script_path in enumerate(script_paths):
             script_code = open(script_path, 'r').read()
             extension = "." + script_path.split('.')[-1]
             programming_language = self.EXTENTSION_TO_PROGRAMING_LANGUAGE[extension]
             script_df.append(dict(document=script_code, script_path=script_path, script_directory=script_directory,
                                   programming_language=programming_language))
+            progress_bar.update(i)
 
         script_df = pd.DataFrame(script_df)
         next_script_directories = [x for x in glob(os.path.join(script_directory, '*')) if os.path.isdir(x)]
