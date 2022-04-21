@@ -72,6 +72,10 @@ class TransformerEncoder(Layer):
         return normalized_encodings
 
 class TransformerDecoder(Layer):
+    '''
+    A layer representing the decoder of a simple Transformer architecture.
+    '''
+
     embedding_args = dict(output_dim=100)
     self_attention_args = dict(num_heads=2, key_dim=100)
     encoder_attention_args = dict(num_heads=2, key_dim=100)
@@ -98,7 +102,13 @@ class TransformerDecoder(Layer):
         config['normalization_args'] = self.normalization_args
         return config
 
-    def call(self, inputs, encoder_outputs):
+    def call(self, inputs, encoder_outputs, *kwargs):
+        '''
+        Inputs
+        inputs: A (batch size x max seq length) int tensor containing padded tokens of each sequence.
+        encoder_outputs: A abatch
+        '''
+
         inputs = self.embedding(inputs)
         inputs = tf.expand_dims(inputs, axis=0) if tf.rank(inputs) == 2 else inputs
         self_attention_encodings = self.self_attention(query=inputs, value=inputs, key=inputs)
@@ -146,6 +156,7 @@ class LSTMEncoder(Layer):
         embedding_args = dict(input_dim=input_dim, output_dim=output_dim)
         self.embedding_args = embedding_args
         self.embedding = Embedding(**self.embedding_args)
+        print(f'UPDATE: Embedding config = {self.embedding.get_config}.')
         self.lstm_args = lstm_args
         self.lstm_args['return_sequences'] = True
         self.lstm = LSTM(**self.lstm_args)
@@ -156,7 +167,11 @@ class LSTMEncoder(Layer):
         config['lstm_args'] = self.lstm_args
         return config
 
-    def call(self, inputs):
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
+
+    def call(self, inputs, *kwargs):
         embedded_inputs = self.embedding(inputs)
 
         if tf.rank(embedded_inputs) == 2:
@@ -280,7 +295,7 @@ class DeClutrContrastive(Model):
         contrasted_seqs_encoding = self.encoder(contrasted_seqs)
         return contrasted_seqs_encoding
 
-    def call(self, inputs):
+    def call(self, inputs, *kwargs):
         '''
         Return output probabilities of DeclutrModel from mini-batch of document sequences.
 
