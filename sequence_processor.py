@@ -5,6 +5,7 @@ from tensorflow.keras.preprocessing.sequence import pad_sequences
 import tensorflow as tf
 from tensorflow.data import Dataset
 from tensorflow_probability.python.distributions import Beta, Sample
+from tensorflow.keras.utils import Progbar
 
 import numpy as np
 
@@ -17,6 +18,10 @@ from common_funcs import find_code_df_methods
 from visuals import make_histogram_comparison
 
 import math
+
+from progressbar import ProgressBar, Bar
+from progressbar.widgets import Counter
+
 
 class SequenceProcessor():
     '''
@@ -151,9 +156,18 @@ class SequenceProcessor():
         return document_df
 
     def fit_tokenizer_in_chunks(self, document_df, chunk_size=1.0e3):
+        document_count = len(document_df)
+        chunk_count = math.ceil(document_count / chunk_size)
+        print(f'UPDATE: Tokenization on document chunks in progress. ')
+        progress_bar = Progbar(target=chunk_count, stateful_metrics=["document_count", "vocabulary_size"])
+        document_count = 0
+
         for i, document_df_chunk in enumerate(self.partition_df(document_df, chunk_size)):
-            print(f'UPDATE: Fitting tokenizer chunk {i}.')
             self.fit_tokenizer_on_documents(document_df_chunk)
+            vocab_size = self.get_vocab_size()
+            document_count += len(document_df_chunk)
+            progress_values = [["document_count", document_count], ["vocabulary_size", vocab_size]]
+            progress_bar.update(i, values=progress_values)
 
     def build_anchor_sequence_inds(self, document_tokens):
         '''
