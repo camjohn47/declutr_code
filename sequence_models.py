@@ -7,6 +7,7 @@ from tensorflow.keras.layers import Layer
 from tensorflow.keras.layers import Embedding, MultiHeadAttention, LSTM, GlobalAvgPool1D, Softmax, \
                                     Dense, LayerNormalization, Dropout, LeakyReLU, Dot
 from tensorflow.keras.layers.experimental import EinsumDense
+from tensorflow.keras.models import load_model
 from transformers import ElectraModel, ElectraConfig
 
 from sequence_processor import SequenceProcessor
@@ -60,7 +61,7 @@ class TransformerEncoder(Layer):
 
     def call(self, inputs):
         inputs = self.embedding(inputs)
-        print(f'UPDATE: Transformer encoder attention weights: {self.self_attention.trainable_weights}')
+       # print(f'UPDATE: Transformer encoder attention weights: {self.self_attention.trainable_weights}')
 
         if tf.rank(inputs) == 2:
             inputs = tf.expand_dims(inputs, axis=0)
@@ -136,6 +137,7 @@ class Transformer(Model):
         decoder_outputs = self.decoder(inputs, encoder_outputs)
         transformed_outputs = self.output_dense(decoder_outputs)
         probabilities = self.output_softmax(transformed_outputs)
+        print(f'UPDATE: Transformer probabilities = {probabilities}, shape = {probabilities.shape}')
         return probabilities
 
 class LSTMEncoder(Layer):
@@ -248,6 +250,10 @@ class DeClutrContrastive(Model):
         config['batch_size'] = self.batch_size
         return config
 
+    @classmethod
+    def from_config(cls, config, custom_objects=None):
+        return cls(**config)
+
     def anchor_encoder_helper(self, anchor):
         if self.pretrained_encoder_name == 'roberta-base' and tf.rank(anchor) == 1:
             anchor = tf.expand_dims(anchor, axis=0)
@@ -313,9 +319,8 @@ class DeClutrContrastive(Model):
         #print(f'UPDATE: Positive sequence probs = {positive_sequence_probs}.')
         return positive_sequence_probs
 
-
 class DeclutrMaskedLanguage(DeClutrContrastive):
-    def __init__(self, masked_vocabulary_size, masked_token, **declutr_args):
+    def __init__(self, masked_vocabulary_size, masked_token, pretrained_encoder_path=None, **declutr_args):
         self.declutr_args = declutr_args
         super().__init__(**self.declutr_args)
         self.masked_vocabulary_size = masked_vocabulary_size
@@ -326,16 +331,36 @@ class DeclutrMaskedLanguage(DeClutrContrastive):
 
         # Integer denoting an input token has been masked.
         self.masked_token = masked_token
+        self.default_output = [0 for i in range(self.masked_vocabulary_size)]
+
+        if pretrained_encoder_path:
+            encoder = self.extract_encoder(pretrained_encoder_path)
+            self.encoder = encoder if encoder else self.encoder
+
+    def load_model(self, model_path):
+        print(f'UPDATE: Loading pre-trained encoder from {model_path}.')
+        try:
+            model = load_model(model_path)
+            return model
+        except:
+            print(f'WARNING: Encoder failed to load from {model_path}! Building new one from scratch.')
+            return None
+
+    def extract_encoder(self, model_path):
+        model = self.load_model(model_path)
+        encoder = model.encoder if model else None
+
+        return encoder
 
     def get_config(self):
         config = super().get_config()
         config['masked_vocabulary_size'] = self.masked_vocabulary_size
+        config['masked_token'] = self.masked_token
         return config
 
     def find_masked_indices(self, tensor):
         masked_indices = tf.where(tensor == self.masked_token).numpy()
         masked_shape = masked_indices.shape
-        print(f'UPDATE: Masked index shape = {masked_shape}')
         masked_indices = masked_indices.tolist() if masked_shape != (1, 1) else masked_indices.tolist()[0]
         return masked_indices
 
@@ -350,7 +375,6 @@ class DeclutrMaskedLanguage(DeClutrContrastive):
         '''
 
         masked_indices = self.find_masked_indices(masked_sequence)
-        print(f'UPDATE: Masked anchor={masked_sequence}, masked indices = {masked_indices}')
         masked_embeddings = tf.gather(embeddings, masked_indices, axis=0)
 
         if tf.rank(masked_embeddings) == 3:
@@ -367,13 +391,14 @@ class DeclutrMaskedLanguage(DeClutrContrastive):
         '''
 
         masked_anchor = inputs
-        print(f'UPDATE: Masked anchor = {masked_anchor}')
+
+        if not masked_anchor.shape[0]:
+            print(f'WARNING: MLM called on empty masked anchor. Returning zeros.')
+            return self.default_output
+
         embedded_anchor = self.anchor_encoder_helper(masked_anchor)
-        print(f'UPDATE: Embedded anchor shape = {embedded_anchor.shape}')
         masked_embeddings = self.gather_masked_embeddings(masked_anchor, embedded_anchor)
-        print(f'UPDATE: Masked embeddings shape = {masked_embeddings.shape}')
         masked_vocabulary_probs = self.masked_vocabulary_dense(masked_embeddings)
-        print(f'UPDATE: Masked vocab probs = {masked_vocabulary_probs}')
         return masked_vocabulary_probs
 
 
