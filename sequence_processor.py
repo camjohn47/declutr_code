@@ -14,6 +14,9 @@ from functools import partial
 from itertools import chain
 
 from common_funcs import find_code_df_methods
+from visuals import make_histogram_comparison
+
+import math
 
 class SequenceProcessor():
     '''
@@ -97,7 +100,7 @@ class SequenceProcessor():
 
         return tokenizer
 
-    def generate_df_in_chunks(self, df, documents_per_chunk=None):
+    def generate_df_in_batches(self, df, documents_per_chunk=None):
         '''
         Process the document df in smaller individual chunks for improved performance. This uses
         attribute <documents_per_batch> to determine the size of each chunk.
@@ -119,18 +122,22 @@ class SequenceProcessor():
                       f'sample count = {negative_sample_count}.')
 
             chunk_index_range = [document_ind] + random.sample(document_inds, k=negative_sample_count)
-            df_chunk = df.take(chunk_index_range)
-            yield df_chunk
+            df_batch = df.take(chunk_index_range)
+            yield df_batch
 
-    def generate_df_chunks(self, df, chunk_count):
+    def partition_df(self, df, chunk_size):
         '''
-        Yield the df in a fixed amount of chunks by taking random samples of the input df.
+        Yield the df in a fixed amount of chunks by partitioning its indices in windows of <chunk_size>.
         '''
 
         document_count = len(df)
+        chunk_count = math.ceil(document_count/chunk_size)
 
-        for chunk in range(chunk_count):
-            df_chunk = df.sample(n=self.documents_per_batch)
+        for i, chunk in enumerate(range(chunk_count)):
+            chunk_start = int(i * chunk_size)
+            chunk_end = int(min((i + 1) * chunk_size, document_count))
+            chunk_inds = list(range(chunk_start, chunk_end))
+            df_chunk = df.take(chunk_inds)
             yield df_chunk
 
     def fit_tokenizer_on_documents(self, document_df):
@@ -143,8 +150,9 @@ class SequenceProcessor():
 
         return document_df
 
-    def fit_tokenizer_in_chunks(self, document_df):
-        for document_df_chunk in self.generate_df_in_chunks(document_df):
+    def fit_tokenizer_in_chunks(self, document_df, chunk_size=1.0e3):
+        for i, document_df_chunk in enumerate(self.partition_df(document_df, chunk_size)):
+            print(f'UPDATE: Fitting tokenizer chunk {i}.')
             self.fit_tokenizer_on_documents(document_df_chunk)
 
     def build_anchor_sequence_inds(self, document_tokens):
@@ -193,7 +201,7 @@ class SequenceProcessor():
         positive_sequence = tf.cast(positive_sequence, tf.int32)
         return positive_sequence
 
-    def filter_documents_by_size(self, document_df):
+    def filter_documents_by_size(self, document_df, make_visuals=True):
         '''
         Removes documents in the dataframe that have less than <self.min_document_length> tokens.
         '''
@@ -201,11 +209,25 @@ class SequenceProcessor():
         document_df['document_size'] = document_df.apply(lambda row: len(row['document_tokens']), axis=1)
         valid_inds = document_df["document_size"] >= self.min_document_length
         document_count = len(document_df)
+        document_sizes_before = document_df["document_size"].values
         document_df = document_df[valid_inds]
+        document_sizes_after = document_df["document_size"].values
         invalid_document_count = document_count - len(document_df)
 
         if invalid_document_count:
             print(f'WARNING: {invalid_document_count} documents were dropped due to small length.')
+
+        # Make a side by side comparison of the document size distribution before and after filtering.
+        if make_visuals:
+            print(f'UPDATE: Making before and after document size histogram. ')
+            hist_vals = [document_sizes_before, document_sizes_after]
+            subplot_xaxis = [dict(title_text="Token Count") for i in range(2)]
+            subplot_yaxis = [dict(title_text='Script Count') for i in range(2)]
+            subplot_titles = [f"Before Filter, {len(hist_vals[0])} Scripts", f"After Filter, {len(hist_vals[1])} Scripts"]
+            layout_args = dict(title_text="Document Size Distribution Before and After Filter", title_x=0.5)
+            make_histogram_comparison(hist_vals=hist_vals, rows=1, cols=2, subplot_titles=subplot_titles,
+                                      subplot_xaxis=subplot_xaxis, subplot_yaxis=subplot_yaxis,
+                                      layout_args=layout_args, histnorm="probability density")
 
         return document_df
 
@@ -347,14 +369,12 @@ class SequenceProcessor():
                                    used for training.
         '''
 
-        self.fit_tokenizer_in_chunks(document_df)
-
         # Pre-process and tokenize the document df.
         document_df = self.tokenize_document_df(document_df)
         document_df = self.filter_documents_by_size(document_df)
         self.cardinality_estimate = len(document_df)
 
-        for i, document_chunk in enumerate(self.generate_df_in_chunks(document_df)):
+        for i, document_chunk in enumerate(self.generate_df_in_batches(document_df)):
             # Build input sequences and a label sequence describing their classes as generator output.
             tokens_chunk = document_chunk['document_tokens'].values
             batch_input_sequences = self.build_batch_input_sequences(tokens_chunk)
@@ -390,8 +410,20 @@ class SequenceProcessor():
                 print(f'WARNING: Empty masked anchor sequence. Skipping this MMM batch.')
                 continue
 
-            print(f'UPDATE: mmm inputs length = {len(mmm_inputs)}.')
+            #print(f'UPDATE: mmm inputs length = {len(mmm_inputs)}, mmm labels shape {mmm_labels.shape}.')
             yield mmm_inputs, mmm_labels
+
+    def count_declutr_mmm_batches(self, document_df):
+        '''
+        Add masked anchor to inputs and labels of masked tokens to labels. This allows for masked method
+        modeling.
+        '''
+        batch_count = 0
+
+        for inputs, labels in self.yield_declutr_mmm_batches(document_df):
+            batch_count += 1
+
+        return batch_count
 
     def build_method_vocabulary(self, code_df):
         if 'methods' not in code_df.columns:
@@ -404,9 +436,9 @@ class SequenceProcessor():
 
         methods = list(chain.from_iterable(code_df['methods'].values.tolist()))
         self.method_vocabulary = [method for method in methods if method in self.tokenizer.word_index]
-        self.MASKED_INDEX = len(self.method_vocabulary)
+        self.MASKED_INDEX = self.get_vocab_size()
         self.method_vocabulary.append(self.MASKED_INDEX)
-        self.tokenizer.fit_on_texts(["MASKED"])
+        self.tokenizer.fit_on_texts(["MASKED_TOKEN"])
         print(f'UPDATE: Sequence processor method vocab size: {len(self.method_vocabulary)}, '
               f'masked index = {self.MASKED_INDEX}.')
 
@@ -508,28 +540,8 @@ class SequenceProcessor():
         token_sequence = self.tokenizer.sequences_to_texts(id_sequence)
         return token_sequence
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    def texts_to_sequences(self, documents):
+        return self.tokenizer.texts_to_sequences(documents)
 
 
 
