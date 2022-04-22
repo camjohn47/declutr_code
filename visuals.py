@@ -38,16 +38,18 @@ def make_3d_scatter(df, xyz_columns=[], layout_args={}, save_path=None):
         fig.savefig(save_path)
 
 def make_histogram_comparison(hist_vals, rows, cols, subplot_titles=[], subplot_xaxis=[], subplot_yaxis=[], layout_args={},
-                              save_path=None, histnorm=None):
+                              save_path=None, histnorm=None, xbins=None):
     fig = make_subplots(rows=rows, cols=cols, subplot_titles=subplot_titles)
+    min_doc_size = min(hist_vals[1])
 
     for i in range(len(hist_vals)):
         # Shift up row and column by 1 because plotly rows\cols are 1-indexed.
         row = math.floor(i / cols) + 1
         col = (i % cols) + 1
-        fig.add_trace(go.Histogram(x=hist_vals[i], histnorm=histnorm), row=row, col=col)
+        fig.add_trace(go.Histogram(x=hist_vals[i], histnorm=histnorm, xbins=xbins), row=row, col=col)
         fig.update_xaxes(subplot_xaxis[i], row=row, col=col)
         fig.update_yaxes(subplot_yaxis[i], row=row, col=col)
+        fig.add_vline(min_doc_size, row=row, col=col)
 
     fig.update_layout(layout_args)
     fig.show()
