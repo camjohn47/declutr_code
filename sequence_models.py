@@ -1,6 +1,10 @@
 import sys
 import os
 
+from pathlib import Path
+
+from common_funcs import get_rank
+
 import tensorflow as tf
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Layer
@@ -8,16 +12,8 @@ from tensorflow.keras.layers import Embedding, MultiHeadAttention, LSTM, GlobalA
                                     Dense, LayerNormalization, Dropout, LeakyReLU, Dot
 from tensorflow.keras.layers.experimental import EinsumDense
 from tensorflow.keras.models import load_model
-from transformers import ElectraModel, ElectraConfig
-
-from sequence_processor import SequenceProcessor
-from pathlib import Path
 
 tf.executing_eagerly()
-
-from itertools import product
-
-import numpy as np
 
 class PWFF(Layer):
     # Point-wise feed forward neural network. Implemented as a Keras layer.
@@ -63,7 +59,7 @@ class TransformerEncoder(Layer):
         inputs = self.embedding(inputs)
        # print(f'UPDATE: Transformer encoder attention weights: {self.self_attention.trainable_weights}')
 
-        if tf.rank(inputs) == 2:
+        if get_rank(inputs) == 2:
             inputs = tf.expand_dims(inputs, axis=0)
 
         attention_encodings = self.self_attention(query=inputs, value=inputs, key=inputs)
@@ -102,7 +98,7 @@ class TransformerDecoder(Layer):
         config['normalization_args'] = self.normalization_args
         return config
 
-    def call(self, inputs, encoder_outputs, *kwargs):
+    def call(self, inputs, encoder_outputs):
         '''
         Inputs
         inputs: A (batch size x max seq length) int tensor containing padded tokens of each sequence.
@@ -110,7 +106,7 @@ class TransformerDecoder(Layer):
         '''
 
         inputs = self.embedding(inputs)
-        inputs = tf.expand_dims(inputs, axis=0) if tf.rank(inputs) == 2 else inputs
+        inputs = tf.expand_dims(inputs, axis=0) if get_rank(inputs) == 2 else inputs
         self_attention_encodings = self.self_attention(query=inputs, value=inputs, key=inputs)
         self_attention_encodings = self.dropout(self_attention_encodings)
         self_attention_encodings = self.normalization(self_attention_encodings)
@@ -150,35 +146,50 @@ class Transformer(Model):
         print(f'UPDATE: Transformer probabilities = {probabilities}, shape = {probabilities.shape}')
         return probabilities
 
-class LSTMEncoder(Layer):
-    def __init__(self, input_dim, output_dim=100, lstm_args={}):
+class LSTMEncoder(Model):
+    lstm_args = dict(units=100)
+
+    def __init__(self, input_dim, embedding_dims=100, lstm_args={}):
         super().__init__()
-        embedding_args = dict(input_dim=input_dim, output_dim=output_dim)
+        self.input_dim = input_dim
+        self.embedding_dims = embedding_dims
+        embedding_args = dict(input_dim=self.input_dim, output_dim=self.embedding_dims)
         self.embedding_args = embedding_args
         self.embedding = Embedding(**self.embedding_args)
-        print(f'UPDATE: Embedding config = {self.embedding.get_config}.')
-        self.lstm_args = lstm_args
+        print(f'UPDATE: Embedding config = {self.embedding.get_config()}.')
+        self.lstm_args.update(lstm_args)
         self.lstm_args['return_sequences'] = True
         self.lstm = LSTM(**self.lstm_args)
+
+        # Dimensions of LSTMEncoder's final output vector.
+        self.output_dims = self.lstm_args["units"]
 
     def get_config(self):
         config = super().get_config()
         config['embedding_args'] = self.embedding_args
         config['lstm_args'] = self.lstm_args
+        config["input_dim"] = self.input_dim
+        config["embedding_dims"] = self.embedding_dims
+        config["output_dims"] = self.output_dims
         return config
 
     @classmethod
     def from_config(cls, config):
         return cls(**config)
 
-    def call(self, inputs, *kwargs):
+    def call(self, inputs):
         embedded_inputs = self.embedding(inputs)
 
-        if tf.rank(embedded_inputs) == 2:
+        if get_rank(embedded_inputs) == 2:
             embedded_inputs = tf.expand_dims(embedded_inputs, axis=0)
 
+        elif not get_rank(embedded_inputs):
+            print(f'WARNING: Flat embedded inputs fed to LSTM layer! {embedded_inputs}')
+            empty_outputs = tf.zeros(self.output_dims)
+            return empty_outputs
+
         encoded_inputs = self.lstm(embedded_inputs)
-        anchor_needs_reduction = tf.rank(encoded_inputs) == 3 and not isinstance(inputs, tf.RaggedTensor)
+        anchor_needs_reduction = get_rank(encoded_inputs) == 3 and not isinstance(inputs, tf.RaggedTensor)
 
         if anchor_needs_reduction:
             encoded_inputs = tf.squeeze(encoded_inputs, axis=0)
@@ -270,7 +281,7 @@ class DeClutrContrastive(Model):
         return cls(**config)
 
     def anchor_encoder_helper(self, anchor):
-        if self.pretrained_encoder_name == 'roberta-base' and tf.rank(anchor) == 1:
+        if self.pretrained_encoder_name == 'roberta-base' and get_rank(anchor) == 1:
             anchor = tf.expand_dims(anchor, axis=0)
             #print(f'UPDATE: Anchor shape after expansion = {anchor.shape}')
 
@@ -280,17 +291,15 @@ class DeClutrContrastive(Model):
 
         #print(f'UPDATE: Anchor shape before encoding = {anchor.shape}')
         anchor_encoding = self.encoder(anchor)
-        anchor_encoding = tf.squeeze(anchor_encoding, axis=0) if tf.rank(anchor_encoding) == 3 else anchor_encoding
+        anchor_encoding = tf.squeeze(anchor_encoding, axis=0) if get_rank(anchor_encoding) == 3 else anchor_encoding
         return anchor_encoding
 
     def sequences_encoder_helper(self, contrasted_seqs):
-        if self.pretrained_encoder_name == 'roberta-base' and tf.rank(contrasted_seqs) == 3:
+        if self.pretrained_encoder_name == 'roberta-base' and get_rank(contrasted_seqs) == 3:
             contrasted_seqs = tf.squeeze(contrasted_seqs, axis=0)
-            #print(f'UPDATE: Contrasted sequences shape after squeeze = {contrasted_seqs.shape}')
 
         if self.pretrained_encoder_name:
             contrasted_seqs = contrasted_seqs.numpy()
-           # print(f'UPDATE: Contrasted sequences after numpy conversion: {contrasted_seqs}, shape = {contrasted_seqs.shape}')
 
         contrasted_seqs_encoding = self.encoder(contrasted_seqs)
         return contrasted_seqs_encoding
@@ -322,16 +331,19 @@ class DeClutrContrastive(Model):
         embedded_anchor = self.anchor_encoder_helper(anchor)
         embedded_contrasted_sequences = self.sequences_encoder_helper(contrasted_sequences)
         encoded_anchor = tf.math.reduce_mean(embedded_anchor, axis=0)
+
+        # TO DO: DeClutr summarizes each document's embedding with the average of its word embeddings.
+        # This has some drawbacks, such as ignoring word order and assuming equally important words.
+        # Experiment with RNN's and attention layers for improved sequence encodings.
         encoded_sequences = tf.math.reduce_mean(embedded_contrasted_sequences, axis=1)
 
-        # Project contrasted sequence encodings onto anchor encoding. These values should correlate with
-        # similarity, and will be fed into final softmax layer to compute positive sequence probabilities.
+        # Project each contrasted sequence encoding onto anchor encoding. These values should correlate with
+        # similarity, and will be fed into final softmax layer for positive sequence probabilities.
         scores = tf.einsum('k,ik->i', encoded_anchor, encoded_sequences)
 
         # Probabilities of each input sequence in the batch being the positive sample for the anchor.
         positive_sequence_probs = self.softmax(scores)
         positive_sequence_probs = tf.expand_dims(positive_sequence_probs, axis=0)
-        #print(f'UPDATE: Positive sequence probs = {positive_sequence_probs}.')
         return positive_sequence_probs
 
 class DeclutrMaskedLanguage(DeClutrContrastive):
@@ -392,7 +404,7 @@ class DeclutrMaskedLanguage(DeClutrContrastive):
         masked_indices = self.find_masked_indices(masked_sequence)
         masked_embeddings = tf.gather(embeddings, masked_indices, axis=0)
 
-        if tf.rank(masked_embeddings) == 3:
+        if get_rank(masked_embeddings) == 3:
             masked_embeddings = tf.squeeze(masked_embeddings, axis=1)
 
         return masked_embeddings
