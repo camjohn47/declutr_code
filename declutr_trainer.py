@@ -205,7 +205,8 @@ class DeClutrTrainer(SequenceProcessor):
         '''
 
         self.fit_tokenizer_in_chunks(document_df)
-
+        document_df = self.tokenize_document_df(document_df)
+        document_df = self.filter_documents_by_size(document_df)
         self.chunk_count = math.ceil(len(document_df) / self.chunk_size)
 
         for chunk, chunk_df in enumerate(self.partition_df(document_df, chunk_size=self.chunk_size)):
