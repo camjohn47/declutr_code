@@ -15,7 +15,7 @@ def make_histogram(df, column, layout_args={}, save_path=None):
         print(f'UPDATE: Saving plotly histogram to {save_path}.')
         fig.savefig(save_path)
 
-def make_3d_scatter(df, xyz_columns=[], layout_args={}, save_path=None):
+def make_3d_scatter(df, xyz_columns=[], layout_args={}, save_path=None, color_column=None):
     '''
     Make a 3D Plotly scatter of columns in a dataframe <df>.
     '''
@@ -29,7 +29,7 @@ def make_3d_scatter(df, xyz_columns=[], layout_args={}, save_path=None):
         sys.exit(1)
 
     x_column, y_column, z_column = xyz_columns
-    fig = px.scatter_3d(data_frame=df, x=x_column, y=y_column, z=z_column)
+    fig = px.scatter_3d(data_frame=df, x=x_column, y=y_column, z=z_column, color=color_column)
     fig.update_layout(layout_args)
     fig.show()
 
