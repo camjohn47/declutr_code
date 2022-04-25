@@ -2,15 +2,22 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import plotly.graph_objs as go
 
+import pandas as pd
+
 import math
 
 import sys
 
 # Default for histogram comparison.
-xaxis_range = [0, 1000]
+XAXIS_RANGE = [0, 1000]
 
-def make_histogram(df, column, layout_args={}, save_path=None):
-    fig = px.histogram(df, x=column)
+def get_default_xrange(series, percentile=.9):
+    xmax = series.quantile(q=percentile)
+    x_range = [0, int(xmax)]
+    return x_range
+
+def make_histogram(df, column, layout_args={}, save_path=None, x_range=None):
+    fig = px.histogram(df, x=column, range_x=x_range)
     fig.update_layout(layout_args)
     fig.show()
 
@@ -41,20 +48,20 @@ def make_3d_scatter(df, xyz_columns=["x", "y", "z"], layout_args={}, save_path=N
         fig.savefig(save_path)
 
 def make_histogram_comparison(hist_vals, rows, cols, subplot_titles=[], subplot_xaxis=[], subplot_yaxis=[], layout_args={},
-                              save_path=None, histnorm=None, xbins=None, xaxis_range=None):
+                              save_path=None, histnorm=None, histfunc="count", xbins=None, xaxis_range=None):
     '''
     Compare histograms side-by-side in a single plot.
     '''
 
     fig = make_subplots(rows=rows, cols=cols, subplot_titles=subplot_titles)
     min_doc_size = min(hist_vals[1])
-    xaxis_range = xaxis_range if xaxis_range else xaxis_range
+    xaxis_range = xaxis_range if xaxis_range else XAXIS_RANGE
 
     for i in range(len(hist_vals)):
         # Shift up row and column by 1 because plotly rows\cols are 1-indexed.
         row = math.floor(i / cols) + 1
         col = (i % cols) + 1
-        fig.add_trace(go.Histogram(x=hist_vals[i], histnorm=histnorm, xbins=xbins), row=row, col=col)
+        fig.add_trace(go.Histogram(x=hist_vals[i], histfunc=histfunc, histnorm=histnorm, xbins=xbins), row=row, col=col)
         fig.update_xaxes(subplot_xaxis[i], row=row, col=col, range=xaxis_range)
         fig.update_yaxes(subplot_yaxis[i], row=row, col=col)
         fig.add_vline(min_doc_size, row=row, col=col)
