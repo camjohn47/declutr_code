@@ -6,9 +6,12 @@ from visuals import make_histogram
 
 import argparse
 
+#TODO: Simplify this using CustomArgParser.
+
 def get_arg_parser():
     arg_parser = argparse.ArgumentParser()
     programming_languages = CodeParser.PROGRAMMING_LANGUAGE_TO_EXTENSION.keys()
+    arg_parser.add_argument("-mi", "--model_id", type=str, required=True)
     arg_parser.add_argument("-pl", "--programming_language", choices=programming_languages, default="all",
                             help="The programming language whose scripts will be ingested in pipeline.")
     arg_parser.add_argument("-lo", "--loss_objective", choices=["declutr_contrastive", "declutr_masked_"],
@@ -17,7 +20,6 @@ def get_arg_parser():
     arg_parser.add_argument('-e', "--encoder_model", choices=["lstm", "transformer"], default='lstm')
     arg_parser.add_argument("-s", "--sampling", type=float, default=.01)
     arg_parser.add_argument("-sf", "--save_format", type=str, default="tf")
-    arg_parser.add_argument("-mi", "--model_id", type=str, default="test")
     return arg_parser
 
 def get_args():
