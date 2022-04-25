@@ -36,8 +36,8 @@ def get_rank(tensor):
 
     try:
         rank = tf.rank(tensor).numpy()
+    # Fails during stateful partition call when rank should be zero.
     except:
-        print(f'WARNING: get_rank failed on tensor {tensor}.')
         rank = 0
     return rank
 

@@ -1,4 +1,3 @@
-import shutil
 from glob import glob
 import os
 import sys
@@ -8,8 +7,6 @@ import pandas as pd
 
 import re
 import gzip
-
-from tensorflow.keras.utils import Progbar
 
 class CodeParser():
     '''
@@ -24,16 +21,16 @@ class CodeParser():
     EXTENTSION_TO_PROGRAMING_LANGUAGE = {extension: language for language, extension in PROGRAMMING_LANGUAGE_TO_EXTENSION.items()}
     CODE_EXTENSIONS = [".py", ".java", ".c"]
 
-    def __init__(self, code_type='all', subset='train'):
-        self.code_type = code_type
-        codesearch_prefix = f'{self.code_type}_{subset}_' if self.code_type != 'all' else f'_{subset}_'
+    def __init__(self, programming_language='all', subset='train'):
+        self.programming_language = programming_language
+        codesearch_prefix = f'{self.programming_language}_{subset}_' if self.programming_language != 'all' else f'_{subset}_'
         self.is_codesearch_payload = lambda path: codesearch_prefix in path
 
-        if self.code_type not in self.PROGRAMMING_LANGUAGE_TO_EXTENSION:
-            print(f'ERROR: Code type {self.code_type} not in code type to extension {self.PROGRAMMING_LANGUAGE_TO_EXTENSION}.')
+        if self.programming_language not in self.PROGRAMMING_LANGUAGE_TO_EXTENSION:
+            print(f'ERROR: Code type {self.programming_language} not in code type to extension {self.PROGRAMMING_LANGUAGE_TO_EXTENSION}.')
             sys.exit(1)
 
-        self.code_extension = self.PROGRAMMING_LANGUAGE_TO_EXTENSION[self.code_type]
+        self.code_extension = self.PROGRAMMING_LANGUAGE_TO_EXTENSION[self.programming_language]
 
     def get_code_search_paths(self, code_directory, extension):
         json_paths = glob(os.path.join(code_directory, f'*{extension}'))
@@ -61,7 +58,7 @@ class CodeParser():
         script_path_pattern = os.path.join(script_directory, f'*{self.code_extension}')
         script_paths = []
 
-        if self.code_type != 'all':
+        if self.programming_language != 'all':
             script_paths = glob(script_path_pattern)
         else:
             for extension in self.CODE_EXTENSIONS:
@@ -83,8 +80,6 @@ class CodeParser():
         script_paths = self.get_all_script_paths(script_directory)
         script_df = []
         script_count = len(script_paths)
-        print(f'UPDATE: CodeParser reading scripts in directory = {script_directory}')
-        progress_bar = Progbar(target=script_count)
 
         for i, script_path in enumerate(script_paths):
             script_code = open(script_path, 'r').read()
@@ -92,7 +87,6 @@ class CodeParser():
             programming_language = self.EXTENTSION_TO_PROGRAMING_LANGUAGE[extension]
             script_df.append(dict(document=script_code, script_path=script_path, script_directory=script_directory,
                                   programming_language=programming_language))
-            progress_bar.update(i)
 
         script_df = pd.DataFrame(script_df)
         next_script_directories = [x for x in glob(os.path.join(script_directory, '*')) if os.path.isdir(x)]
@@ -106,7 +100,6 @@ class CodeParser():
         code_search_paths = self.get_code_search_paths(script_directory, ".jsonl")
 
         if code_search_paths:
-            print(f'UPDATE: CodeSearch paths = {code_search_paths} found. Beginning parsing.')
             code_search_dfs = [self.parse_codesearch_payload(code_search_path) for code_search_path in code_search_paths]
             code_search_df = pd.concat(code_search_dfs)
             script_df = pd.concat([script_df, code_search_df])
