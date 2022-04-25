@@ -111,6 +111,13 @@ class DeClutrTrainer(SequenceProcessor):
         if self.save_format == 'h5':
             self.model_path = os.path.join(self.model_path, "declutr_model.h5")
 
+    def save_encoder(self, model):
+        self.encoder_path = os.path.join(self.model_dir, "encoder")
+        self.encoder_path = os.path.join(self.encoder_path, ".h5") if self.save_format == 'h5' else self.encoder_path
+        encoder = model.encoder
+        print(f"UPDATE: Saving encoder to {self.encoder_path}.")
+        save_model(encoder, filepath=self.encoder_path, save_format=self.save_format)
+
     def build_declutr_model(self, code_df, declutr_args={}):
         self.fit_tokenizer_in_chunks(code_df)
         vocab_size = self.get_vocab_size()
@@ -182,8 +189,9 @@ class DeClutrTrainer(SequenceProcessor):
             declutr.fit(x=dataset_train, epochs=1, callbacks=callbacks, validation_data=dataset_val,
                         steps_per_epoch=train_steps, validation_steps=val_steps)
             print(f'UPDATE: Train time = {time.time() - start}.')
+            print(f'UPDATE: Saving full model to {self.model_path}.')
             save_model(declutr, filepath=self.model_path, save_format=self.save_format)
-            print(f'UPDATE: Saved model to {self.model_dir}.')
+            self.save_encoder(declutr)
 
     def build_fit_directory(self):
         self.log_dir = os.path.join(self.model_dir, f'chunk_{self.chunk}')

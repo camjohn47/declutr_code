@@ -240,9 +240,10 @@ class SequenceProcessor():
             subplot_titles = [f"Before Filter, {len(hist_vals[0])} Scripts", f"After Filter, {len(hist_vals[1])} Scripts"]
             layout_args = dict(title_text="Document Size Distribution Before and After Filter", title_x=0.5)
             xbins = dict(start=0, end=np.max(document_sizes_after), size=self.min_document_length)
+            xaxis_range = [0, 5000]
             make_histogram_comparison(hist_vals=hist_vals, rows=1, cols=2, subplot_titles=subplot_titles,
                                       subplot_xaxis=subplot_xaxis, subplot_yaxis=subplot_yaxis, layout_args=layout_args,
-                                      histnorm="probability density", xbins=xbins)
+                                      histnorm="probability", xbins=xbins, xaxis_range=xaxis_range)
 
         return document_df
 

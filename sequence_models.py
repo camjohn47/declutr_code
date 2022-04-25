@@ -376,7 +376,6 @@ class DeclutrMaskedLanguage(DeClutrContrastive):
     def extract_encoder(self, model_path):
         model = self.load_model(model_path)
         encoder = model.encoder if model else None
-
         return encoder
 
     def get_config(self):

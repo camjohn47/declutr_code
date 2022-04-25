@@ -15,8 +15,8 @@ class MaskedMethodLoss(Loss):
         return mlm_loss
 
 class ContrastiveLoss(Loss):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, kwargs):
+        super().__init__(**kwargs)
 
     def get_config(self):
         return super().get_config()
