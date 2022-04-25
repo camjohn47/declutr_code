@@ -23,6 +23,7 @@ import time
 import math
 
 import pickle
+import dill
 
 tf.executing_eagerly()
 tf.config.list_physical_devices()
@@ -42,7 +43,7 @@ class DeClutrTrainer(SequenceProcessor):
 
     def __init__(self, sequence_processor_args={}, chunk_size=1000, epoch_count=3, train_split=.75,
                  metrics=[], declutr_model="declutr_contrastive", encoder_model='lstm', save_format="tf",
-                 tensorboard_dir="tensorboard_logs"):
+                 tensorboard_dir="tensorboard_logs", save_training_data=True):
 
         super().__init__(**sequence_processor_args)
         declutr_model = self.loss_objective
@@ -72,14 +73,16 @@ class DeClutrTrainer(SequenceProcessor):
 
         self.save_format = save_format
         self.tensorboard_dir = tensorboard_dir
+        self.save_training_data = save_training_data
 
     def save_to_model_dir(self):
         if not self.model_dir:
             print(f'ERROR: Tried to save DeClutr Trainer before building model directory! ')
             sys.exit(1)
 
-        serialized_self = pickle.dumps(self)
-        self.path = os.path.join(self.model_dir, "processor.pickle")
+        serialized_self = dill.dumps(self)
+        self.path = os.path.join(self.model_dir, "processor.dill")
+
         with open(self.path, "wb") as file:
             print(f'UPDATE: Saving DeClutrTrainer to {self.path}.')
             file.write(serialized_self)
@@ -103,11 +106,10 @@ class DeClutrTrainer(SequenceProcessor):
     def update_from_model(self, declutr_model):
         self.model_dir = declutr_model.model_dir
         print(f'UPDATE: Setting Trainer model directory to {self.model_dir}.')
+        self.model_path = self.model_dir
 
-        if self.save_format == 'tf':
-            self.model_path = self.model_dir
-        else:
-            self.model_path = os.path.join(self.model_dir, "declutr_model.h5")
+        if self.save_format == 'h5':
+            self.model_path = os.path.join(self.model_path, "declutr_model.h5")
 
     def build_declutr_model(self, code_df, declutr_args={}):
         self.fit_tokenizer_in_chunks(code_df)
@@ -208,6 +210,11 @@ class DeClutrTrainer(SequenceProcessor):
         document_df = self.tokenize_document_df(document_df)
         document_df = self.filter_documents_by_size(document_df)
         self.chunk_count = math.ceil(len(document_df) / self.chunk_size)
+
+        if self.save_training_data:
+            training_data_path = os.path.join(self.model_dir, "training_data.csv")
+            print(f"UPDATE: Saving training document df to {training_data_path}.")
+            document_df.to_csv(training_data_path, index=False)
 
         for chunk, chunk_df in enumerate(self.partition_df(document_df, chunk_size=self.chunk_size)):
             for epoch in range(self.epoch_count):
