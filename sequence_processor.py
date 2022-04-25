@@ -26,9 +26,9 @@ class SequenceProcessor():
     https://arxiv.org/abs/2006.03659 or read the documentation in sequence_models.py.
 
     The main role of this class is to randomly sample documents from a collection of documents and
-    sample subsets of these documents to build batches. The sequences are tokenized and prepared for
-    These text sequence batches include binary labels
-    describing the positive or negative relationship between them and the anchor.
+    sample subsets of these documents to build sequence batches. The sequences are tokenized and prepared
+    for Tensorflow models. These text sequence batches include binary labels describing the positive
+    or negative relationship between them and the anchor sequence.
 
     Default beta parameters taken from the original DeClutr paper concentration1 = alpha, 0 = beta.
     '''
@@ -84,6 +84,10 @@ class SequenceProcessor():
         self.dataset_method = self.LOSS_OBJECTIVE_TO_DATASET_METHOD[self.loss_objective]
         self.method_vocabulary = None
         self.cardinality_estimate = 0
+
+        # Lambdas for document -> DeClutr sequence index conversion.
+        self.map_sequence_to_doc_ind = lambda i: math.floor(i / (2 * self.anchors_per_document * self.num_positive_samples))
+        self.map_doc_to_contrasted_ind = lambda i: self.map_sequence_to_doc_ind(i)
 
     def initialize_tokenizer(self, tokenizer, tokenizer_type):
         # If pre-trained tokenizer is specified, the type and tokenizer itself must be provided.
@@ -175,7 +179,6 @@ class SequenceProcessor():
         anchor_length_prob = self.anchor_length_distribution.sample([1])
         anchor_length = int(anchor_length_prob * (self.max_anchor_length - self.min_anchor_length)) + self.min_anchor_length
         start_domain = list(range(token_count - anchor_length))
-        #print(f'UPDATE: Start domain = {start_domain}, length = {anchor_length}, tc = {token_count}')
         anchor_start = random.choice(start_domain)
         anchor_range = range(anchor_start, anchor_start + anchor_length)
         anchor_sequence = [document_tokens[i] for i in anchor_range]
@@ -184,12 +187,12 @@ class SequenceProcessor():
 
     def build_positive_sequence(self, document_tokens, anchor_range):
         '''
-        Build a positive sequence for a document with respect to an anchor span. Length of which is
-        sampled with a beta distribution. Sequence starting point is uniformly sampled.
+        Build a positive sequence for a document with respect to an anchor span. Length of which is sampled with a beta
+        distribution. Its starting point is uniformly sampled.
 
-        NOTE: Difference from sampling method described in DeClutr paper: Positive length is restricted
-        to a subsumed view in the event that anchor end > (document length - max span length). This
-        prevents the positive span from exceeding the document's bounds.
+        NOTE: Difference from sampling method described in DeClutr paper: Positive length is restricted to a subsumed view
+        if anchor end > (document length - max span length). This prevents the positive span from exceeding the document's
+        bounds.
         '''
 
         positive_length_prob = self.positive_sample_distribution.sample([1])
@@ -211,6 +214,10 @@ class SequenceProcessor():
     def filter_documents_by_size(self, document_df, make_visuals=True):
         '''
         Removes documents in the dataframe that have less than <self.min_document_length> tokens.
+
+        Inputs
+        document_df (DataFrame): Tokenized document dataframe with a "document_tokens" column. It must be tokenized.
+        make_visuals (bool)    : Whether to make document size histogram comparison.
         '''
 
         document_df['document_size'] = document_df.apply(lambda row: len(row['document_tokens']), axis=1)
@@ -234,8 +241,8 @@ class SequenceProcessor():
             layout_args = dict(title_text="Document Size Distribution Before and After Filter", title_x=0.5)
             xbins = dict(start=0, end=np.max(document_sizes_after), size=self.min_document_length)
             make_histogram_comparison(hist_vals=hist_vals, rows=1, cols=2, subplot_titles=subplot_titles,
-                                      subplot_xaxis=subplot_xaxis, subplot_yaxis=subplot_yaxis,
-                                      layout_args=layout_args, histnorm="probability density", xbins=xbins)
+                                      subplot_xaxis=subplot_xaxis, subplot_yaxis=subplot_yaxis, layout_args=layout_args,
+                                      histnorm="probability density", xbins=xbins)
 
         return document_df
 
@@ -245,9 +252,9 @@ class SequenceProcessor():
         document_tokens (array-like): Tokens representing a document's text.
 
         Outputs
-        List of the document's anchor sequences, and positive sequences for each anchor. Positive sequences
-        are used as negative samples for different documents (soft negative samples), and hard negative
-        samples for different anchors of the same document.
+        List of the document's anchor sequences, and positive sequences for each anchor. Positive sequences are used as
+        negative samples for different documents (soft negative samples), and hard negative samples for different anchors
+        of the same document.
         '''
 
         document_input_sequences = []
@@ -281,10 +288,10 @@ class SequenceProcessor():
 
         return batch_input_sequences
 
-    def build_batch_label_sequence(self, batch_input_sequences):
+    def build_contrastive_label_sequence(self, batch_input_sequences):
         '''
         Inputs
-        batch_input_sequences
+        batch_input_sequences 
 
         Outputs
         batch_labels (array-like): 2*A*N-shaped integer tensor with binary labels for each input sequence.
@@ -350,6 +357,10 @@ class SequenceProcessor():
         return document_df
 
     def pad_anchor_and_contrasted(self, anchor, contrasted_sequences):
+        '''
+        Pad anchor and contrasted sequences to the right with zeros using <max_anchor_length> length.
+        '''
+
         anchor = pad_sequences([anchor], padding='post', maxlen=self.max_anchor_length)[0]
         contrasted_sequences = pad_sequences(contrasted_sequences, padding='post', maxlen=self.max_anchor_length)
         return anchor, contrasted_sequences
@@ -364,29 +375,34 @@ class SequenceProcessor():
 
         return anchor, input_sequences
 
-    def add_column(self, input_sequences, df, column, anchor_ind):
+    def update_sequences_with_column(self, input_sequences, df, column, anchor_ind):
+        '''
+        Use a column from df to make other entries in the batch of input sequences. For example:
+
+        column = "programming_language" produces two columns: "anchor_programming_language" and
+        "contrasted_programming_languages," so that other information about the sequences is available
+        in input_sequences.
+        '''
+
         if column not in df.columns:
             print(f'ERROR! Tried to add column {column} not available in df columns = {df.columns}.')
             sys.exit(1)
 
         column_vals = df[column].values
-        anchor_document_ind = int(anchor_ind / (2 * self.anchors_per_document * self.num_positive_samples))
+        anchor_document_ind = self.map_sequence_to_doc_ind(anchor_ind)
         anchor_val = column_vals[anchor_document_ind]
-        contrasted_vals = np.delete(column_vals, anchor_document_ind)
         anchor_tensor_name = f"anchor_{column}"
         input_sequences[anchor_tensor_name] = anchor_val
         contrasted_tensor_name = f"contrasted_{column}s"
-        contrasted_seq_count = input_sequences["contrasted_sequences"].shape[0]
-        map_doc_to_sequence_ind = lambda i: math.floor(i / (2*self.anchors_per_document * self.num_positive_samples))
-        map_doc_to_contrasted_ind = lambda i: map_doc_to_sequence_ind(i) if i < anchor_document_ind else map_doc_to_sequence_ind(i-1)
-        contrasted_doc_inds = [i for i in range(contrasted_seq_count) if i != anchor_document_ind]
-        contrasted_vals = [contrasted_vals[map_doc_to_contrasted_ind(i)] for i in contrasted_doc_inds]
+        row_count = input_sequences["contrasted_sequences"].shape[0] + 1
+        contrasted_vals = [column_vals[self.map_doc_to_contrasted_ind(i)] for i in range(row_count)]
+        contrasted_vals.pop(anchor_document_ind)
         input_sequences[contrasted_tensor_name] = contrasted_vals
         return input_sequences
 
     def add_columns(self, input_sequences, df, columns, anchor_ind):
         for column in columns:
-            input_sequences = self.add_column(input_sequences, df, column, anchor_ind)
+            input_sequences = self.update_sequences_with_column(input_sequences, df, column, anchor_ind)
 
         return input_sequences
 
@@ -394,28 +410,27 @@ class SequenceProcessor():
     def yield_declutr_contrastive_batches(self, document_df, add_columns=[]):
         '''
         Inputs
-        document_df (dataframe): Dataframe containing documents.
+        document_df (dataframe): Dataframe containing documents. Must be tokenized with "document_tokens" column before.
+        add_columns (list):      Columns from document_df to include with each batch of sequences.
 
         Outputs
-        declutr_dataset (Dataset): Tf dataset with batches of positive and negative input token sequences
-                                   used for training.
+        declutr_dataset (dict): Dictionary with batches of positive and negative input token sequences
+                                used for training.
         '''
 
         # Pre-process and tokenize the document df.
-        document_df = self.tokenize_document_df(document_df)
-        document_df = self.filter_documents_by_size(document_df)
         self.cardinality_estimate = len(document_df)
 
         for i, document_chunk in enumerate(self.generate_df_in_batches(document_df)):
             # Build input sequences and a label sequence describing their classes as generator output.
             tokens_chunk = document_chunk['document_tokens'].values
-            batch_input_sequences = self.build_batch_input_sequences(tokens_chunk)
-            batch_labels, positive_document_ind = self.build_batch_label_sequence(batch_input_sequences)
-            anchor, batch_input_sequences = self.extract_anchor_from_inputs(batch_input_sequences, positive_document_ind)
-            anchor, batch_input_sequences = self.determine_padding(anchor, batch_input_sequences)
-            anchor, batch_input_sequences = self.convert_anchor_and_inputs(anchor, batch_input_sequences)
-            batch_labels = self.process_batch_labels(batch_labels)
-            input_sequences = dict(anchor_sequence=anchor, contrasted_sequences=batch_input_sequences)
+            contrastive_inputs = self.build_batch_input_sequences(tokens_chunk)
+            contrastive_labels, positive_document_ind = self.build_contrastive_label_sequence(contrastive_inputs)
+            anchor, contrastive_inputs = self.extract_anchor_from_inputs(contrastive_inputs, positive_document_ind)
+            anchor, contrastive_inputs = self.determine_padding(anchor, contrastive_inputs)
+            anchor, contrastive_inputs = self.convert_anchor_and_inputs(anchor, contrastive_inputs)
+            batch_labels = self.process_batch_labels(contrastive_labels)
+            input_sequences = dict(anchor_sequence=anchor, contrasted_sequences=contrastive_inputs)
             input_sequences = self.add_columns(input_sequences, document_chunk, add_columns, positive_document_ind)
             yield input_sequences, batch_labels
 
@@ -536,12 +551,9 @@ class SequenceProcessor():
         '''
         Return size of tokenizer's vocabulary = number of unique words\tokens it's seen.
         '''
-
-        if not self.pretrained_tokenizer:
-            vocab_size =  len(self.tokenizer.index_word)
-        else:
-            vocab_size = len(self.tokenizer.get_vocab())
-
+        
+        vocab = self.tokenizer.index_word if not self.pretrained_tokenizer else self.tokenizer.get_vocab()
+        vocab_size = len(vocab) 
         return vocab_size
 
     def get_method_vocab_size(self):
