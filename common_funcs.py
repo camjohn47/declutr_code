@@ -1,6 +1,10 @@
 import re
 import time
 
+import os
+
+import dill
+
 import tensorflow as tf
 
 # NOTE: get_rank() will fail if not running eagerly.
@@ -8,11 +12,12 @@ tf.executing_eagerly()
 
 def find_code_df_methods(code_df):
     '''
-    Returns tokens containing methods that were invoked and the indices where they occurred in
-    respective sequences.
+    Builds a new "methods" column that contains methods found in each script.
+
+    code_df (DataFrame):
     '''
 
-    # This works for Python and Java, but not
+    # This works for Python and Java, but not all languages. TODO: Expand this to work for all PL's.
     get_script_methods = lambda row: re.findall(r'(?<=[/(])\w+', row['script_path'])
     code_df['methods'] = code_df.apply(get_script_methods, axis=1)
     return code_df
@@ -41,3 +46,13 @@ def get_rank(tensor):
         rank = 0
     return rank
 
+def get_sequence_processor(model_dir):
+    processor_path = os.path.join(model_dir, "sequence_processor.dill")
+
+    if not os.path.exists(processor_path):
+        print(f"WARNING: Sequence processor path {processor_path} doesn't exist!")
+        return None
+
+    with open(processor_path, "rb") as file:
+        processor = dill.load(file)
+        return processor
