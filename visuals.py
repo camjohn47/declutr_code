@@ -2,6 +2,9 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import plotly.graph_objs as go
 
+import os
+from pathlib import Path
+
 import pandas as pd
 
 import math
@@ -16,16 +19,12 @@ def get_default_xrange(series, percentile=.9):
     x_range = [0, int(xmax)]
     return x_range
 
-def make_histogram(df, column, layout_args={}, save_path=None, x_range=None):
+def make_histogram(df, column, layout_args={},x_range=None):
     fig = px.histogram(df, x=column, range_x=x_range)
     fig.update_layout(layout_args)
-    fig.show()
+    return fig
 
-    if save_path:
-        print(f'UPDATE: Saving plotly histogram to {save_path}.')
-        fig.savefig(save_path)
-
-def make_3d_scatter(df, xyz_columns=["x", "y", "z"], layout_args={}, save_path=None, color_column=None):
+def make_3d_scatter(df, xyz_columns=["x", "y", "z"], layout_args={},color_column=None):
     '''
     Make a 3D Plotly scatter of columns in a dataframe <df>.
     '''
@@ -41,14 +40,10 @@ def make_3d_scatter(df, xyz_columns=["x", "y", "z"], layout_args={}, save_path=N
     x_column, y_column, z_column = xyz_columns
     fig = px.scatter_3d(data_frame=df, x=x_column, y=y_column, z=z_column, color=color_column)
     fig.update_layout(layout_args)
-    fig.show()
-
-    if save_path:
-        print(f'UPDATE: Saving plotly 3d-scatter to {save_path}.')
-        fig.savefig(save_path)
+    return fig 
 
 def make_histogram_comparison(hist_vals, rows, cols, subplot_titles=[], subplot_xaxis=[], subplot_yaxis=[], layout_args={},
-                              save_path=None, histnorm=None, histfunc="count", xbins=None, xaxis_range=None):
+                              histnorm=None, histfunc="count", xbins=None, xaxis_range=None):
     '''
     Compare histograms side-by-side in a single plot.
     '''
@@ -67,11 +62,17 @@ def make_histogram_comparison(hist_vals, rows, cols, subplot_titles=[], subplot_
         fig.add_vline(min_doc_size, row=row, col=col)
 
     fig.update_layout(layout_args)
-    fig.show()
+    return fig
 
-    if save_path:
-        print(f'UPDATE: Saving histogram comparison')
-        fig.savefig(save_path)
+def process_fig(fig, path):
+    '''
+    Show a Plotly figure and save it in html.
+    '''
+
+    fig.show()
+    Path(os.path.dirname(path)).mkdir(parents=True, exist_ok=True)
+    print(f"UPDATE: Saving figure to {path}.")
+    fig.write_html(path)
 
 
 
