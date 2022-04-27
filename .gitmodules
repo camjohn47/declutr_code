@@ -1,0 +1,3 @@
+[submodule "CodeSearchNet"]
+	path = CodeSearchNet
+	url = https://github.com/github/CodeSearchNet
