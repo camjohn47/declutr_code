@@ -5,7 +5,6 @@ import sys
 import json
 import pandas as pd
 
-import re
 import gzip
 
 class CodeParser():
@@ -33,6 +32,10 @@ class CodeParser():
         self.code_extension = self.PROGRAMMING_LANGUAGE_TO_EXTENSION[self.programming_language]
 
     def get_code_search_paths(self, code_directory, extension):
+        '''
+        Get CodeSearch filenames in a directory ending in <extension>.
+        '''
+
         json_paths = glob(os.path.join(code_directory, f'*{extension}'))
         codesearch_paths = list(filter(self.is_codesearch_payload, json_paths))
         return codesearch_paths
@@ -55,6 +58,12 @@ class CodeParser():
             file.write(content)
 
     def get_all_script_paths(self, script_directory):
+        '''
+        Returns a list of all scripts that match the instance's code extension. For example:
+
+        if <self.code_extension>=".py" ---> this method returns all python files in <script_directory>.
+        '''
+
         script_path_pattern = os.path.join(script_directory, f'*{self.code_extension}')
         script_paths = []
 
@@ -71,29 +80,27 @@ class CodeParser():
         for gzip_path in gzip_paths:
             self.unzip_payload_gzip(gzip_path)
 
-    def code_directory_to_df(self, script_directory, shuffle=True):
+    def get_subdirs(self, directory):
+        subdirs = [x for x in glob(os.path.join(directory, '*')) if os.path.isdir(x)]
+        return subdirs
+
+    def join_df_with_subdirectory_dfs(self, script_directory, script_df):
         '''
-        Finds scripts of the parser's code type in input <script_directory>. Then, read these scripts
-        into a document-based dataframe for use by a DeClutr model.
+        Parse through subdirectories, build their dfs, and join with the current script df.
         '''
 
-        script_paths = self.get_all_script_paths(script_directory)
-        script_df = []
-        script_count = len(script_paths)
-
-        for i, script_path in enumerate(script_paths):
-            script_code = open(script_path, 'r').read()
-            extension = "." + script_path.split('.')[-1]
-            programming_language = self.EXTENTSION_TO_PROGRAMING_LANGUAGE[extension]
-            script_df.append(dict(document=script_code, script_path=script_path, script_directory=script_directory,
-                                  programming_language=programming_language))
-
-        script_df = pd.DataFrame(script_df)
-        next_script_directories = [x for x in glob(os.path.join(script_directory, '*')) if os.path.isdir(x)]
+        next_script_directories = self.get_subdirs(script_directory)
 
         for next_script_directory in next_script_directories:
             new_script_df = self.code_directory_to_df(next_script_directory)
             script_df = pd.concat([script_df, new_script_df])
+
+        return script_df
+
+    def join_df_with_codesearch(self, script_directory, script_df):
+        '''
+        Search for CodeSearch payloads and ingest their script data into the current script_df.
+        '''
 
         code_search_gzip_paths = self.get_code_search_paths(script_directory, ".gz")
         self.unpack_gzip_paths(code_search_gzip_paths)
@@ -103,6 +110,38 @@ class CodeParser():
             code_search_dfs = [self.parse_codesearch_payload(code_search_path) for code_search_path in code_search_paths]
             code_search_df = pd.concat(code_search_dfs)
             script_df = pd.concat([script_df, code_search_df])
+
+        return script_df
+
+    def code_directory_to_df(self, script_directory, shuffle=True):
+        '''
+        Finds scripts of the parser's code type in input <script_directory>. Then, read these scripts
+        into a document-based dataframe for use by a DeClutr model. This will ingest scripts that fall into these categories:
+
+         1. scripts of the specified code extension found in <script_directory>.
+         2. scripts found in (recursive) subdirectories of <script_directory>.
+         3. scripts available in the CodeSearch project's JSON data.
+
+         Inputs
+         script_directory  (str): Path of directory to recursively parse through and build script dataframe from.
+         shuffle          (bool): Whether to shuffle the dataframe before returning it. Not doing so can introduce bias,
+                                  especially when considering local data whose purpose is likely correlated with directory
+                                  distance.
+        '''
+
+        script_paths = self.get_all_script_paths(script_directory)
+        script_df = []
+
+        for i, script_path in enumerate(script_paths):
+            script_code = open(script_path, 'r').read()
+            extension = "." + script_path.split('.')[-1]
+            programming_language = self.EXTENTSION_TO_PROGRAMING_LANGUAGE[extension]
+            script_df.append(dict(document=script_code, script_path=script_path, script_directory=script_directory,
+                                  programming_language=programming_language))
+
+        script_df = pd.DataFrame(script_df)
+        script_df = self.join_df_with_subdirectory_dfs(script_directory, script_df)
+        script_df = self.join_df_with_codesearch(script_directory, script_df)
 
         # Shuffle the dataframe so that chunks taken from it are unbiased.
         script_df = script_df.sample(frac=1)  if shuffle else script_df
@@ -127,7 +166,17 @@ class CodeParser():
         code_search_df = pd.DataFrame(codesearch_rows)
         return code_search_df
 
-    #def build_method_vocabulary(self, code_df, ):
+    def delete_codesearch_payloads(self, directory):
+        codesearch_paths = self.get_code_search_paths(directory, ".jsonl")
+        print(f'UPDATE: codesearch paths = {codesearch_paths}')
+
+        for path in codesearch_paths:
+            os.remove(path)
+
+        subdirs = self.get_subdirs(directory)
+
+        for subdir in subdirs:
+            self.delete_codesearch_payloads(subdir)
 
 
 
