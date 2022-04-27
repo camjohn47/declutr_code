@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from common_funcs import get_rank
+from tensor_visualier import TensorVisualizer
 
 import tensorflow as tf
 from tensorflow.keras.models import Model
@@ -77,8 +78,7 @@ class TransformerDecoder(Layer):
     encoder_attention_args = dict(num_heads=2, key_dim=100)
     dropout_args = dict(rate=.1)
 
-    def __init__(self, input_dim, self_attention_args={}, normalization_args={}, dropout_args={},
-                       encoder_attention_args={}):
+    def __init__(self, input_dim, self_attention_args={}, normalization_args={}, dropout_args={}, encoder_attention_args={}):
         super().__init__()
         self.embedding_args["input_dim"] = input_dim
         self.embedding = Embedding(**self.embedding_args)
@@ -102,7 +102,7 @@ class TransformerDecoder(Layer):
         '''
         Inputs
         inputs: A (batch size x max seq length) int tensor containing padded tokens of each sequence.
-        encoder_outputs: A abatch
+        encoder_outputs: A (batch size x output
         '''
 
         inputs = self.embedding(inputs)
@@ -118,14 +118,20 @@ class TransformerDecoder(Layer):
         return normalized_encodings
 
 class Transformer(Model):
+    '''
+    Tf model that represents a basic transformer neural network. It has an encoder-decoder architecture that uses self-attention
+    and linear transformations to encode sequences. This encoder
+    '''
+
     output_dense_args = dict()
-    def __init__(self, input_dim, encoder_args={}, decoder_args={}, output_dense_args={}):
+
+    def __init__(self, input_dim, output_dim=100, encoder_args={}, decoder_args={}, output_dense_args={}):
         super().__init__()
         self.encoder = TransformerEncoder(input_dim=input_dim, **encoder_args)
         self.decoder = TransformerDecoder(input_dim=input_dim, **decoder_args)
         self.output_dense_args.update(output_dense_args)
         self.units = input_dim
-        self.output_dense_args["units"] = self.units
+        self.output_dense_args["units"] = output_dim
         self.output_dense = Dense(**self.output_dense_args)
         self.output_softmax = Softmax()
 
@@ -142,11 +148,16 @@ class Transformer(Model):
         encoder_outputs = self.encoder(inputs)
         decoder_outputs = self.decoder(inputs, encoder_outputs)
         transformed_outputs = self.output_dense(decoder_outputs)
+        #print(f'UPDATE: transformed outputs shape = {transformed_outputs.shape}')
         probabilities = self.output_softmax(transformed_outputs)
-        print(f'UPDATE: Transformer probabilities = {probabilities}, shape = {probabilities.shape}')
         return probabilities
 
+#TODO: Generalize this to an RNNEncoder class.
 class LSTMEncoder(Model):
+    '''
+    Wrapper for an LSTM encoder.
+    '''
+
     lstm_args = dict(units=100)
 
     def __init__(self, input_dim, embedding_dims=100, lstm_args={}):
@@ -175,7 +186,11 @@ class LSTMEncoder(Model):
 
     @classmethod
     def from_config(cls, config):
-        return cls(**config)
+        if isinstance(config, dict):
+            return cls(**config)
+        else:
+            print(f'WARNING: Config passed to LSTMEncoder from_config is not a dictionary! {config}')
+            return cls({})
 
     def call(self, inputs):
         embedded_inputs = self.embedding(inputs)
@@ -219,14 +234,14 @@ class DeClutrContrastive(Model):
 
     sequence_structure_args = dict()
     encoder_args = dict(units=100)
-    SUPPORTED_ENCODERS = {'lstm': LSTMEncoder, 'embedding': Embedding, 'transformer': Transformer}
+    SUPPORTED_ENCODERS = {'lstm': LSTMEncoder, 'embedding': Embedding, 'transformer': TransformerEncoder}
     LSTM_ENCODER_ARGS = dict(lstm_args=dict(units=100, return_sequences=True))
     TRANSFORMER_ARGS = dict()
     SUPPORTED_ENCODER_ARGS = {'lstm': LSTM_ENCODER_ARGS, 'embedding': dict(output_dim=100),
                               'transformer': TRANSFORMER_ARGS}
 
     def __init__(self, batch_size, pretrained_encoder=None, pretrained_encoder_name=None, encoder_config={},
-                 encoder_model='lstm', input_dim=None, model_id='test'):
+                 encoder_model='lstm', input_dim=None, model_directory="models", model_id='test', visualize_tensors=False):
 
         super().__init__()
         self.pretrained_encoder_name = pretrained_encoder_name
@@ -247,11 +262,13 @@ class DeClutrContrastive(Model):
         self.dot_product = Dot(axes=[1, 1], normalize=True)
         self.softmax = Softmax(axis=0)
         self.model_id = model_id
-        self.model_dir = os.path.join('models', model_id)
+        self.model_dir = os.path.join(model_directory, model_id)
         print(f'UPDATE: Creating model directory {self.model_dir}.')
         Path(self.model_dir).mkdir(exist_ok=True, parents=True)
+        self.visualize_tensors = visualize_tensors
+        self.tensor_visualizer = TensorVisualizer(tf_model_dir=self.model_dir, num_axes=2) if self.visualize_tensors else None
 
-    def initialize_encoder(self, pretrained_encoder, encoder_model, input_dim=None):
+    def initialize_encoder(self, pretrained_encoder, encoder_model):
         if pretrained_encoder and not self.pretrained_encoder_name:
             print(f'ERROR: Pre-trained encoder provided without name. ')
             sys.exit(1)
@@ -283,13 +300,10 @@ class DeClutrContrastive(Model):
     def anchor_encoder_helper(self, anchor):
         if self.pretrained_encoder_name == 'roberta-base' and get_rank(anchor) == 1:
             anchor = tf.expand_dims(anchor, axis=0)
-            #print(f'UPDATE: Anchor shape after expansion = {anchor.shape}')
 
         if self.pretrained_encoder_name:
             anchor = anchor.numpy()
-            print(f'UPDATE: Anchor sequence after numpy conversion: {anchor}, shape = {anchor.shape}')
 
-        #print(f'UPDATE: Anchor shape before encoding = {anchor.shape}')
         anchor_encoding = self.encoder(anchor)
         anchor_encoding = tf.squeeze(anchor_encoding, axis=0) if get_rank(anchor_encoding) == 3 else anchor_encoding
         return anchor_encoding
@@ -319,13 +333,13 @@ class DeClutrContrastive(Model):
         anchor = inputs['anchor_sequence']
 
         if anchor.shape[0] == None:
-            print(f'WARNING: Declutr anchor sequence has no length! Returning zeros. Anchor: {anchor}')
+            #print(f'WARNING: Declutr anchor sequence has no length! Returning zeros. Anchor: {anchor}')
             return tf.zeros(self.batch_size)
 
         contrasted_sequences = inputs['contrasted_sequences']
 
         if contrasted_sequences.shape[0] == None:
-            print(f'WARNING: Declutr contrasted sequences have no length! Returning zeros. Contrasted: {contrasted_sequences}')
+            #print(f'WARNING: Declutr contrasted sequences have no length! Returning zeros. Contrasted: {contrasted_sequences}')
             return tf.zeros(self.batch_size)
 
         embedded_anchor = self.anchor_encoder_helper(anchor)
@@ -344,6 +358,10 @@ class DeClutrContrastive(Model):
         # Probabilities of each input sequence in the batch being the positive sample for the anchor.
         positive_sequence_probs = self.softmax(scores)
         positive_sequence_probs = tf.expand_dims(positive_sequence_probs, axis=0)
+
+        if self.tensor_visualizer:
+            self.tensor_visualizer.record_training_outputs(positive_sequence_probs, [])
+
         return positive_sequence_probs
 
 class DeclutrMaskedLanguage(DeClutrContrastive):
