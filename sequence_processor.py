@@ -36,7 +36,7 @@ class SequenceProcessor():
     anchor_args = dict(concentration1=4, concentration0=2)
     positive_sampling_args = dict(concentration1=2, concentration0=4)
 
-    def __init__(self, loss_objective, tokenizer_args={}, min_anchor_length=32, max_anchor_length=112, anchor_args={},
+    def __init__(self, loss_objective="declutr_contrastive", tokenizer_args={}, min_anchor_length=32, max_anchor_length=112, anchor_args={},
                  positive_sampling_args={}, anchors_per_document=1, num_positive_samples=1, documents_per_batch=32,
                  chunk_size=int(1.0e3), max_document_length=512, pretrained_tokenizer=False, tokenizer_type=None,
                  tokenizer=None, sample_documents_with_replacement=False, pad_sequences=False, mmm_sample=.1):
@@ -235,8 +235,8 @@ class SequenceProcessor():
         if make_visuals:
             print(f'UPDATE: Making before and after document size histogram. ')
             hist_vals = [document_sizes_before, document_sizes_after]
-            subplot_xaxis = [dict(title_text="Token Count") for i in range(2)]
-            subplot_yaxis = [dict(title_text='Script Count') for i in range(2)]
+            subplot_xaxis = [dict(title_text="Script Size (Tokens)") for i in range(2)]
+            subplot_yaxis = [dict(title_text='Frequency') for i in range(2)]
             subplot_titles = [f"Before Filter, {len(hist_vals[0])} Scripts", f"After Filter, {len(hist_vals[1])} Scripts"]
             layout_args = dict(title_text="Document Size Distribution Before and After Filter", title_x=0.5)
             xbins = dict(start=0, end=np.max(document_sizes_after), size=self.min_document_length)
