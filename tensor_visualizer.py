@@ -6,7 +6,7 @@ import sys
 
 import tensorflow as tf
 import plotly.express as px
-from visuals import make_3d_scatter
+from visuals import make_3d_scatter, process_fig
 
 import pandas as pd
 from pathlib import Path
@@ -16,9 +16,8 @@ class TensorVisualizer():
     A class for visualizing layer outputs from a tensorflow model and de-bugging final outputs.
     '''
 
-    def __init__(self, tf_model_dir, num_axes=3, save_visuals=False):
+    def __init__(self, tf_model_dir, num_axes=3, save_visuals=True):
         self.tf_model_dir = tf_model_dir
-        self.tf_model = load_model(self.tf_model_dir)
         self.num_axes = num_axes
         self.columns = ["sequence", "batch", "dimension", "value"] if self.num_axes ==3 else ["sequence", "batch", "value"]
         self.visuals_df = pd.DataFrame([], columns=self.columns)
@@ -92,7 +91,11 @@ class TensorVisualizer():
         xyz_columns = self.columns
         print(f'UPDATE: Visuals df before scatter')
         self.visuals_df.info()
-        make_3d_scatter(self.visuals_df, xyz_columns=xyz_columns, save_path=save_path)
+
+        # Title plot and formatting for this chunk's output visuals.
+        layout_args = dict(title_text=f"Chunk {self.prev_visuals_count} Outputs", title_x=0.5)
+        fig = make_3d_scatter(self.visuals_df, xyz_columns=xyz_columns, layout_args=layout_args)
+        process_fig(fig, save_path)
 
     def reset_visuals_df(self):
         if self.visuals_df.any:
@@ -101,13 +104,6 @@ class TensorVisualizer():
         self.prev_visuals_count += 1
         self.visuals_df = pd.DataFrame([], columns=self.columns)
         self.batch_count = 0
-
-    def visualize_outputs(self, batch_count, visuals_dir, layer):
-        if layer not in self.tf_model.layers:
-            print(f'ERROR: Requested layer {layer} not found in tf model layers = {self.tf_model.layers}')
-            sys.exit(1)
-
-        return []
 
 class VisualizerCallBack(Callback):
     def __init__(self, visualizer):
