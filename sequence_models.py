@@ -4,12 +4,11 @@ import os
 from pathlib import Path
 
 from common_funcs import get_rank
-from tensor_visualier import TensorVisualizer
+from tensor_visualizer import TensorVisualizer
 
 import tensorflow as tf
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Layer
-from tensorflow.keras.layers import Embedding, MultiHeadAttention, LSTM, GlobalAvgPool1D, Softmax, \
+from tensorflow.keras.layers import Layer, Embedding, MultiHeadAttention, LSTM, GRU, GlobalAvgPool1D, Softmax, \
                                     Dense, LayerNormalization, Dropout, LeakyReLU, Dot
 from tensorflow.keras.layers.experimental import EinsumDense
 from tensorflow.keras.models import load_model
@@ -17,7 +16,10 @@ from tensorflow.keras.models import load_model
 tf.executing_eagerly()
 
 class PWFF(Layer):
-    # Point-wise feed forward neural network. Implemented as a Keras layer.
+    '''
+    Simple point-wise feed forward neural network implemented as a Keras layer. It linearly maps inputs to a <units>-dimensional
+    space, after which leaky relu activation is applied.
+    '''
     def __init__(self, units=100):
         super().__init__()
         self.units = units
@@ -34,9 +36,10 @@ class PWFF(Layer):
         transformed_inputs = self.leaky_relu_activation(transformed_inputs)
         return transformed_inputs
 
-class TransformerEncoder(Layer):
-    self_attention_args = dict(num_heads=2, key_dim=100)
-    dropout_args = dict(rate=.1)
+#TODO: Experiment with Transformer XL architecture for sequence-level recurrence and longer context reception.
+class TransformerEncoder(Model):
+    self_attention_args = dict(num_heads=6, key_dim=100)
+    dropout_args = dict(rate=.05)
 
     def __init__(self, input_dim, self_attention_args={}, normalization_args={}, dropout_args={}):
         super().__init__()
@@ -48,6 +51,7 @@ class TransformerEncoder(Layer):
         self.normalization = LayerNormalization(**self.normalization_args)
         self.dropout_args.update(dropout_args)
         self.dropout = Dropout(**self.dropout_args)
+        self.output_dims = self.self_attention_args["key_dim"]
 
     def get_config(self):
         config = super().get_config()
@@ -57,11 +61,20 @@ class TransformerEncoder(Layer):
         return config
 
     def call(self, inputs):
+        '''
+        inputs (Tensor): An integer token tensor describing text in a sequence. Can be one of the following shapes\types:
+                         1. (sequence length) Tensor
+                         2. (batch x None)-shaped RaggedTensor with different lengths in the outer dimension associated with
+                            different text lengths.
+        '''
+
         inputs = self.embedding(inputs)
-       # print(f'UPDATE: Transformer encoder attention weights: {self.self_attention.trainable_weights}')
 
         if get_rank(inputs) == 2:
             inputs = tf.expand_dims(inputs, axis=0)
+        elif not get_rank(inputs):
+            #print(f'WARNING: Empty inputs tensor fed to TransformerEncoder. ')
+            return tf.zeros(self.output_dims)
 
         attention_encodings = self.self_attention(query=inputs, value=inputs, key=inputs)
         attention_encodings = self.dropout(attention_encodings)
@@ -74,8 +87,8 @@ class TransformerDecoder(Layer):
     '''
 
     embedding_args = dict(output_dim=100)
-    self_attention_args = dict(num_heads=2, key_dim=100)
-    encoder_attention_args = dict(num_heads=2, key_dim=100)
+    self_attention_args = dict(num_heads=6, key_dim=100)
+    encoder_attention_args = dict(num_heads=6, key_dim=100)
     dropout_args = dict(rate=.1)
 
     def __init__(self, input_dim, self_attention_args={}, normalization_args={}, dropout_args={}, encoder_attention_args={}):
@@ -148,19 +161,18 @@ class Transformer(Model):
         encoder_outputs = self.encoder(inputs)
         decoder_outputs = self.decoder(inputs, encoder_outputs)
         transformed_outputs = self.output_dense(decoder_outputs)
-        #print(f'UPDATE: transformed outputs shape = {transformed_outputs.shape}')
         probabilities = self.output_softmax(transformed_outputs)
         return probabilities
 
-#TODO: Generalize this to an RNNEncoder class.
-class LSTMEncoder(Model):
+class RNNEncoder(Model):
     '''
-    Wrapper for an LSTM encoder.
+    Wrapper for an RNN encoder.
     '''
 
-    lstm_args = dict(units=100)
+    ARCHITECTURE_TO_MODEL = dict(lstm=LSTM, gru=GRU)
+    model_args = dict(units=100)
 
-    def __init__(self, input_dim, embedding_dims=100, lstm_args={}):
+    def __init__(self, input_dim, embedding_dims=100, architecture='lstm', model_args={}):
         super().__init__()
         self.input_dim = input_dim
         self.embedding_dims = embedding_dims
@@ -168,20 +180,30 @@ class LSTMEncoder(Model):
         self.embedding_args = embedding_args
         self.embedding = Embedding(**self.embedding_args)
         print(f'UPDATE: Embedding config = {self.embedding.get_config()}.')
-        self.lstm_args.update(lstm_args)
-        self.lstm_args['return_sequences'] = True
-        self.lstm = LSTM(**self.lstm_args)
+
+        self.model_args.update(model_args)
+        # Returns the entire sequence of hidden states, rather than just the most recent one.
+        self.model_args['return_sequences'] = True
+
+        if architecture not in self.ARCHITECTURE_TO_MODEL:
+            print(f"ERROR: Requested RNNEncoder architecture = {architecture} unavailable.")
+            sys.exit(1)
+
+        self.architecture = architecture
+        self.model = self.ARCHITECTURE_TO_MODEL[self.architecture]
+        self.model = self.model(**self.model_args)
 
         # Dimensions of LSTMEncoder's final output vector.
-        self.output_dims = self.lstm_args["units"]
+        self.output_dims = self.model_args["units"]
 
     def get_config(self):
         config = super().get_config()
         config['embedding_args'] = self.embedding_args
-        config['lstm_args'] = self.lstm_args
+        config['model_args'] = self.model_args
         config["input_dim"] = self.input_dim
         config["embedding_dims"] = self.embedding_dims
         config["output_dims"] = self.output_dims
+        config["architecture"] = self.architecture
         return config
 
     @classmethod
@@ -189,7 +211,7 @@ class LSTMEncoder(Model):
         if isinstance(config, dict):
             return cls(**config)
         else:
-            print(f'WARNING: Config passed to LSTMEncoder from_config is not a dictionary! {config}')
+            print(f'WARNING: Config passed to RNNEncoder from_config is not a dictionary! {config}')
             return cls({})
 
     def call(self, inputs):
@@ -199,16 +221,13 @@ class LSTMEncoder(Model):
             embedded_inputs = tf.expand_dims(embedded_inputs, axis=0)
 
         elif not get_rank(embedded_inputs):
-            print(f'WARNING: Flat embedded inputs fed to LSTM layer! {embedded_inputs}')
+            print(f'WARNING: Flat embedded inputs fed to RNN layer! {embedded_inputs}')
             empty_outputs = tf.zeros(self.output_dims)
             return empty_outputs
 
-        encoded_inputs = self.lstm(embedded_inputs)
+        encoded_inputs = self.model(embedded_inputs)
         anchor_needs_reduction = get_rank(encoded_inputs) == 3 and not isinstance(inputs, tf.RaggedTensor)
-
-        if anchor_needs_reduction:
-            encoded_inputs = tf.squeeze(encoded_inputs, axis=0)
-
+        encoded_inputs = tf.squeeze(encoded_inputs, axis=0) if anchor_needs_reduction else encoded_inputs
         return encoded_inputs
 
 class DeClutrContrastive(Model):
@@ -234,21 +253,28 @@ class DeClutrContrastive(Model):
 
     sequence_structure_args = dict()
     encoder_args = dict(units=100)
-    SUPPORTED_ENCODERS = {'lstm': LSTMEncoder, 'embedding': Embedding, 'transformer': TransformerEncoder}
-    LSTM_ENCODER_ARGS = dict(lstm_args=dict(units=100, return_sequences=True))
+    SUPPORTED_ENCODERS = {'rnn': RNNEncoder, 'embedding': Embedding, 'transformer': TransformerEncoder}
+    RNN_ENCODER_ARGS = dict(model_args=dict(units=100, return_sequences=True))
     TRANSFORMER_ARGS = dict()
-    SUPPORTED_ENCODER_ARGS = {'lstm': LSTM_ENCODER_ARGS, 'embedding': dict(output_dim=100),
-                              'transformer': TRANSFORMER_ARGS}
+    SUPPORTED_ENCODER_ARGS = {'rnn': RNN_ENCODER_ARGS, 'embedding': dict(output_dim=100), 'transformer': TRANSFORMER_ARGS}
+
+    # Sequence summarization layers used to aggregate information along the time dimension. For example, each script
+    # can have a variable amount of code. This layer determines how a sequence's word embeddings are summarized to produce
+    # a single vector.
+    MEAN_SUMMARIZATION = GlobalAvgPool1D()
+    SEQUENCE_SUMMARIZATION_LAYERS = dict(average=GlobalAvgPool1D(), lstm=LSTM(return_sequences=False, units=100),
+                                         gru=GRU(return_sequences=False, units=100))
 
     def __init__(self, batch_size, pretrained_encoder=None, pretrained_encoder_name=None, encoder_config={},
-                 encoder_model='lstm', input_dim=None, model_directory="models", model_id='test', visualize_tensors=False):
+                 encoder_model='rnn', input_dim=None, models_directory="models", model_id='test', visualize_tensors=False,
+                 sequence_summarization="average"):
 
         super().__init__()
         self.pretrained_encoder_name = pretrained_encoder_name
 
         if encoder_model not in self.SUPPORTED_ENCODERS:
-            print(f'ERROR: Unsupported encoder type requested. Supported encoder types: {self.SUPPORTED_ENCODERS}')
-            sys.exit(1)
+            raise ValueError(f'ERROR: Unsupported encoder model {encoder_model} requested. Supported encoder models: '
+                             f'{self.SUPPORTED_ENCODERS}')
 
         self.encoder_config = self.SUPPORTED_ENCODER_ARGS[encoder_model]
         self.encoder_config.update(encoder_config)
@@ -262,16 +288,20 @@ class DeClutrContrastive(Model):
         self.dot_product = Dot(axes=[1, 1], normalize=True)
         self.softmax = Softmax(axis=0)
         self.model_id = model_id
-        self.model_dir = os.path.join(model_directory, model_id)
-        print(f'UPDATE: Creating model directory {self.model_dir}.')
-        Path(self.model_dir).mkdir(exist_ok=True, parents=True)
+        self.build_directory(models_directory)
         self.visualize_tensors = visualize_tensors
         self.tensor_visualizer = TensorVisualizer(tf_model_dir=self.model_dir, num_axes=2) if self.visualize_tensors else None
+        self.__sequence_summarization = self.get_sequence_summarization(sequence_summarization)
+        print(f'UPDATE: Sequence summarization = {self.__sequence_summarization}')
+
+    def build_directory(self, model_directory):
+        self.model_dir = os.path.join(model_directory, self.model_id)
+        print(f'UPDATE: Creating model directory {self.model_dir}.')
+        Path(self.model_dir).mkdir(exist_ok=True, parents=True)
 
     def initialize_encoder(self, pretrained_encoder, encoder_model):
         if pretrained_encoder and not self.pretrained_encoder_name:
-            print(f'ERROR: Pre-trained encoder provided without name. ')
-            sys.exit(1)
+            raise ValueError(f'ERROR: Pre-trained encoder provided without name. ')
 
         if pretrained_encoder:
             encoder = pretrained_encoder
@@ -279,6 +309,22 @@ class DeClutrContrastive(Model):
             encoder = self.SUPPORTED_ENCODERS[encoder_model](**self.encoder_config)
 
         return encoder, encoder_model
+
+    def get_sequence_summarization(self, value):
+        if value not in self.SEQUENCE_SUMMARIZATION_LAYERS:
+            raise ValueError(f"ERROR: Requested unsupported sequence summarization {value}.")
+
+        sequence_summarization = self.SEQUENCE_SUMMARIZATION_LAYERS[value]
+        return sequence_summarization
+
+    @property
+    def sequence_summarization(self):
+        return self.__sequence_summarization
+
+    @sequence_summarization.setter
+    def sequence_summarization(self, value):
+        self.value = self.get_sequence_summarization(value)
+        print(f'UPDATE: Set sequence summarization = {self.__sequence_summarization}')
 
     def build_einsum_layer(self):
         einsum_layer = EinsumDense(equation='k,ik->i', output_shape=(self.batch_size))
@@ -298,12 +344,14 @@ class DeClutrContrastive(Model):
         return cls(**config)
 
     def anchor_encoder_helper(self, anchor):
+        '''
+        Prepare anchor sequence for anchor encoding and then squeeze resulting encoding if it's 3D.
+        '''
+
         if self.pretrained_encoder_name == 'roberta-base' and get_rank(anchor) == 1:
             anchor = tf.expand_dims(anchor, axis=0)
 
-        if self.pretrained_encoder_name:
-            anchor = anchor.numpy()
-
+        anchor = anchor.numpy() if self.pretrained_encoder_name else anchor
         anchor_encoding = self.encoder(anchor)
         anchor_encoding = tf.squeeze(anchor_encoding, axis=0) if get_rank(anchor_encoding) == 3 else anchor_encoding
         return anchor_encoding
@@ -317,6 +365,23 @@ class DeClutrContrastive(Model):
 
         contrasted_seqs_encoding = self.encoder(contrasted_seqs)
         return contrasted_seqs_encoding
+
+    def summarize_sequence(self, sequence):
+        '''
+        Summarize the sequence (should be a float tensor) along its time axis.
+        '''
+
+        # Expand tensor to have a batch axis for anchor sequence. This ensures proper mapping by summarization layer.
+        sequence = tf.expand_dims(sequence, axis=0) if get_rank(sequence) == 2 else sequence
+        summary = self.sequence_summarization(sequence)
+        return summary
+
+    def record_visual_outputs(self, output_probs):
+        '''
+        Save the outputs to the TensorVisualizer for building visuals, if specified.
+        '''
+        if self.tensor_visualizer:
+            self.tensor_visualizer.record_training_outputs(output_probs, [])
 
     def call(self, inputs, *kwargs):
         '''
@@ -332,39 +397,42 @@ class DeClutrContrastive(Model):
 
         anchor = inputs['anchor_sequence']
 
+        # Can happen at epoch start with tf 2.9 during warm up.
         if anchor.shape[0] == None:
-            #print(f'WARNING: Declutr anchor sequence has no length! Returning zeros. Anchor: {anchor}')
             return tf.zeros(self.batch_size)
 
         contrasted_sequences = inputs['contrasted_sequences']
 
+        # Can happen at epoch start with tf 2.9 during warm up.
         if contrasted_sequences.shape[0] == None:
-            #print(f'WARNING: Declutr contrasted sequences have no length! Returning zeros. Contrasted: {contrasted_sequences}')
             return tf.zeros(self.batch_size)
 
-        embedded_anchor = self.anchor_encoder_helper(anchor)
-        embedded_contrasted_sequences = self.sequences_encoder_helper(contrasted_sequences)
-        encoded_anchor = tf.math.reduce_mean(embedded_anchor, axis=0)
+        encoded_anchor = self.anchor_encoder_helper(anchor)
+        summarized_anchor = self.summarize_sequence(encoded_anchor)
+        summarized_anchor = tf.squeeze(summarized_anchor)
+        encoded_contrasted_sequences = self.sequences_encoder_helper(contrasted_sequences)
 
-        # TO DO: DeClutr summarizes each document's embedding with the average of its word embeddings.
-        # This has some drawbacks, such as ignoring word order and assuming equally important words.
-        # Experiment with RNN's and attention layers for improved sequence encodings.
-        encoded_sequences = tf.math.reduce_mean(embedded_contrasted_sequences, axis=1)
+        # TODO: DeClutr summarizes each document's embedding with the average of its word embeddings.
+        #       This has some drawbacks, such as ignoring word order and assuming equally important words.
+        #       Experiment with RNN's and attention layers for improved sequence encodings.
+        summarized_sequences = self.summarize_sequence(encoded_contrasted_sequences)
 
         # Project each contrasted sequence encoding onto anchor encoding. These values should correlate with
         # similarity, and will be fed into final softmax layer for positive sequence probabilities.
-        scores = tf.einsum('k,ik->i', encoded_anchor, encoded_sequences)
+        scores = tf.einsum('k,ik->i', summarized_anchor, summarized_sequences)
 
         # Probabilities of each input sequence in the batch being the positive sample for the anchor.
         positive_sequence_probs = self.softmax(scores)
         positive_sequence_probs = tf.expand_dims(positive_sequence_probs, axis=0)
-
-        if self.tensor_visualizer:
-            self.tensor_visualizer.record_training_outputs(positive_sequence_probs, [])
-
+        self.record_visual_outputs(positive_sequence_probs)
         return positive_sequence_probs
 
 class DeclutrMaskedLanguage(DeClutrContrastive):
+    '''
+    Generative version of DeclutrContrastive with a MMM learning objective. It tries to predict the words associated
+    with masked out tokens from a sequence using its context.
+    '''
+
     def __init__(self, masked_vocabulary_size, masked_token, pretrained_encoder_path=None, **declutr_args):
         self.declutr_args = declutr_args
         super().__init__(**self.declutr_args)

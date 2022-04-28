@@ -15,7 +15,7 @@ from code_parser import CodeParser
 from sequence_models import DeClutrContrastive, DeclutrMaskedLanguage
 from sequence_processor import SequenceProcessor
 from loss_functions import ContrastiveLoss, MaskedMethodLoss
-from tensor_visualier import TensorVisualizer, VisualizerCallBack
+from tensor_visualizer import TensorVisualizer, VisualizerCallBack
 from visuals import make_histogram, process_fig
 
 from itertools import product
@@ -116,6 +116,7 @@ class DeClutrTrainer(SequenceProcessor):
         self.model_id = declutr_args["model_id"]
         code_df = self.build_code_df(code_directory)
         self.make_programming_language_hist(code_df)
+        self.fit_tokenizer_in_chunks(code_df)
         declutr_model = self.build_declutr_model(code_df=code_df, declutr_args=declutr_args)
         self.train_model(declutr_model=declutr_model, document_df=code_df)
 
@@ -176,11 +177,10 @@ class DeClutrTrainer(SequenceProcessor):
         Build and return a Declutr model for training using code_df for vocabulary.
 
         Inputs
-        code_df (DataFrame): A script-based dataframe supplying text for training sequences.
+        code_df (DataFrame): A script-based dataframe supplying text and other attributes for training sequences.
         declutr_args (dict): Parameter-value mapping with configuration for building a Declutr model.
         '''
 
-        self.fit_tokenizer_in_chunks(code_df)
         vocab_size = self.get_vocab_size()
         declutr_args = self.update_declutr_encoder_args(declutr_args, vocab_size)
 
@@ -249,7 +249,7 @@ class DeClutrTrainer(SequenceProcessor):
 
         # Only one epoch fed into fit call at a time to refresh negative samples. If we used epochs=self.epoch_count instead,
         # the same negative samples would be used which would likely result in lower quality embeddings.
-        # LATER: Quantify this improvement.
+        #TODO: Run above experiment.
         for hparam_combo in hparam_combos:
             callbacks = self.get_model_callbacks(hparam_vals=hparam_combo)
             print(f'UPDATE: Beginning training with HParam combo {hparam_combo}. Training steps = {train_steps},'
@@ -283,7 +283,6 @@ class DeClutrTrainer(SequenceProcessor):
         Then use these sequences as inputs and outputs for training the declutr model.
         '''
 
-        self.fit_tokenizer_in_chunks(document_df)
         document_df = self.tokenize_document_df(document_df)
         document_df = self.filter_documents_by_size(document_df)
         self.chunk_count = math.ceil(len(document_df) / self.chunk_size)
