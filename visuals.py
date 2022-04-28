@@ -64,15 +64,17 @@ def make_histogram_comparison(hist_vals, rows, cols, subplot_titles=[], subplot_
     fig.update_layout(layout_args)
     return fig
 
-def process_fig(fig, path):
+def process_fig(fig, path=None):
     '''
     Show a Plotly figure and save it in html.
     '''
 
     fig.show()
-    Path(os.path.dirname(path)).mkdir(parents=True, exist_ok=True)
-    print(f"UPDATE: Saving figure to {path}.")
-    fig.write_html(path)
+
+    if path:
+        Path(os.path.dirname(path)).mkdir(parents=True, exist_ok=True)
+        print(f"UPDATE: Saving figure to {path}.")
+        fig.write_html(path)
 
 
 
