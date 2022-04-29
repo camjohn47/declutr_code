@@ -39,7 +39,7 @@ class SequenceProcessor():
     def __init__(self, loss_objective="declutr_contrastive", tokenizer_args={}, min_anchor_length=32, max_anchor_length=112, anchor_args={},
                  positive_sampling_args={}, anchors_per_document=1, num_positive_samples=1, documents_per_batch=32,
                  chunk_size=int(1.0e3), max_document_length=512, pretrained_tokenizer=False, tokenizer_type=None,
-                 tokenizer=None, sample_documents_with_replacement=False, pad_sequences=False, mmm_sample=.1):
+                 tokenizer=None, sample_documents_with_replacement=False, pad_sequences=False, mmm_sample=.1, text_column="code"):
         self.min_anchor_length = min_anchor_length
         self.max_anchor_length = max_anchor_length
 
@@ -84,10 +84,25 @@ class SequenceProcessor():
         self.dataset_method = self.LOSS_OBJECTIVE_TO_DATASET_METHOD[self.loss_objective]
         self.method_vocabulary = None
         self.cardinality_estimate = 0
+        self.text_column = text_column
 
         # Lambdas for document -> DeClutr sequence index conversion.
         self.map_sequence_to_doc_ind = lambda i: math.floor(i / (2 * self.anchors_per_document * self.num_positive_samples))
         self.map_doc_to_contrasted_ind = lambda i: self.map_sequence_to_doc_ind(i)
+
+    def preprocess_df(self, df):
+        '''
+        Check text availability and drop rows with nan text.
+        '''
+
+        if self.text_column not in df.columns:
+            raise ValueError(f"ERROR: {self.text_column} not in df columns = {df.columns}.")
+
+        total_docs = len(df)
+        df.dropna(subset=[self.text_column], inplace=True)
+        nan_docs = total_docs - len(df)
+        print(f'WARNING: {nan_docs} documents dropped with nan.')
+        return df
 
     def initialize_tokenizer(self, tokenizer, tokenizer_type):
         # If pre-trained tokenizer is specified, the type and tokenizer itself must be provided.
@@ -147,12 +162,12 @@ class SequenceProcessor():
             yield df_chunk
 
     def fit_tokenizer_on_documents(self, document_df):
-        documents = document_df['document'].values
+        documents = document_df[self.text_column].values
 
         if self.pretrained_tokenizer:
             pass
         else:
-            document_df['document_tokens'] = self.tokenizer.fit_on_texts(documents)
+            document_df[self.text_column] = self.tokenizer.fit_on_texts(documents)
 
         return document_df
 
@@ -346,7 +361,7 @@ class SequenceProcessor():
         the processor's tokenizer.
         '''
 
-        documents = document_df['document'].values
+        documents = document_df[self.text_column].values
 
         if self.pretrained_tokenizer:
             documents = documents.tolist()
