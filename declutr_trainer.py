@@ -99,7 +99,7 @@ class DeClutrTrainer(SequenceProcessor):
 
     def make_programming_language_hist(self, code_df):
         layout_args = dict(title_text="Programming Language Distribution, Train Subset", title_x=0.5)
-        hist = make_histogram(code_df, column="programming_language", layout_args=layout_args)
+        hist = make_histogram(code_df, column="language", layout_args=layout_args)
         path = os.path.join(self.model_dir, self.model_id, "programming_language_histogram.png")
         process_fig(fig=hist, path=path)
 
@@ -115,6 +115,7 @@ class DeClutrTrainer(SequenceProcessor):
 
         self.model_id = declutr_args["model_id"]
         code_df = self.build_code_df(code_directory)
+        code_df = self.preprocess_df(code_df)
         self.make_programming_language_hist(code_df)
         self.fit_tokenizer_in_chunks(code_df)
         declutr_model = self.build_declutr_model(code_df=code_df, declutr_args=declutr_args)
@@ -294,7 +295,7 @@ class DeClutrTrainer(SequenceProcessor):
 
         for chunk, chunk_df in enumerate(self.partition_df(document_df, chunk_size=self.chunk_size)):
             for epoch in range(self.epoch_count):
-                print(f'UPDATE: Beginning DeClutr training for chunk {chunk} out of {self.chunk_count}, '
+                print(f'UPDATE: Beginning DeClutr training for chunk {chunk}/{self.chunk_count}, '
                       f'epoch {epoch}, chunk size = {len(chunk_df)}.')
                 self.update_indices(chunk, epoch)
                 self.build_fit_directory()
