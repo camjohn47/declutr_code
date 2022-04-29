@@ -15,11 +15,19 @@ def get_arg_parser():
                             default="declutr_contrastive", help="The learning objective of the NN"
                                                                 " that determines its architecture.")
     arg_parser.add_argument('-e', "--encoder_model", choices=["rnn", "transformer"], default='rnn')
-    arg_parser.add_argument("-s", "--sampling", type=float, default=.01)
+    arg_parser.add_argument("-s", "--sampling", type=float, default=1)
     arg_parser.add_argument("-sf", "--save_format", type=str, default="tf")
     arg_parser.add_argument("-vt", "--visualize_tensors", type=bool, default=False)
-    arg_parser.add_argument("-ea", "--encoder_architecture", choices=["lstm", "gru"], required=False, default="lstm")
-    arg_parser.add_argument("-ss", "--sequence_summarization", choices=["average", "lstm", "gru"], required=False, default="average")
+    arg_parser.add_argument("-ea", "--encoder_architecture", choices=["lstm", "gru"], required=False, default="lstm",
+                            help="RNN architecture of the DeClutr model's encoder.")
+    arg_parser.add_argument("-ss", "--sequence_summarization", choices=["average", "lstm", "gru"], required=False, default="average",
+                            help="Method of summarizing sequence along time\word placement dimension. Original DeClutr paper"
+                                 "uses averaging.")
+    arg_parser.add_argument("-nw", "--num_words", required=False, type=int, default=None,
+                            help="Number of most popular words in vocabulary to keep.")
+    #TODO: Add cross functionality support for scripts and docstrings. For starters, through a QA architecture.
+    arg_parser.add_argument("-tc", "--text_column", required=False, default="script", choices=["script", "docstring"],
+                            help="Column in code dataframe whose text will be analyzed. ")
     return arg_parser
 
 def get_encoder_config(args):
@@ -34,7 +42,8 @@ def get_args():
     arg_parser = get_arg_parser()
     args = vars(arg_parser.parse_args())
     code_parser_args = dict(programming_language=args["programming_language"])
-    sequence_processor_args = dict(loss_objective=args["loss_objective"])
+    tokenizer_args = dict(num_words=args["num_words"])
+    sequence_processor_args = dict(loss_objective=args["loss_objective"], tokenizer_args=tokenizer_args, text_column=args["text_column"])
     sampling = args["sampling"]
     encoder_config = get_encoder_config(args)
     declutr_trainer_args = dict(sequence_processor_args=sequence_processor_args, encoder_model=args["encoder_model"],
