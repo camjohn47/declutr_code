@@ -19,8 +19,9 @@ class CodeParser():
     PROGRAMMING_LANGUAGE_TO_EXTENSION = dict(python='.py', java='.java', c=".c", all='.*')
     EXTENTSION_TO_PROGRAMING_LANGUAGE = {extension: language for language, extension in PROGRAMMING_LANGUAGE_TO_EXTENSION.items()}
     CODE_EXTENSIONS = [".py", ".java", ".c"]
+    codesearch_columns = ["code", "path", "url", "language", "docstring"]
 
-    def __init__(self, programming_language='all', subset='train'):
+    def __init__(self, programming_language='all', subset='train', codesearch_columns=[]):
         self.programming_language = programming_language
         codesearch_prefix = f'{self.programming_language}_{subset}_' if self.programming_language != 'all' else f'_{subset}_'
         self.is_codesearch_payload = lambda path: codesearch_prefix in path
@@ -30,6 +31,7 @@ class CodeParser():
             sys.exit(1)
 
         self.code_extension = self.PROGRAMMING_LANGUAGE_TO_EXTENSION[self.programming_language]
+        self.codesearch_columns = codesearch_columns if codesearch_columns else self.codesearch_columns
 
     def get_code_search_paths(self, code_directory, extension):
         '''
@@ -133,22 +135,22 @@ class CodeParser():
         script_df = []
 
         for i, script_path in enumerate(script_paths):
-            script_code = open(script_path, 'r').read()
+            code = open(script_path, 'r').read()
             extension = "." + script_path.split('.')[-1]
-            programming_language = self.EXTENTSION_TO_PROGRAMING_LANGUAGE[extension]
-            script_df.append(dict(document=script_code, script_path=script_path, script_directory=script_directory,
-                                  programming_language=programming_language))
+            language = self.EXTENTSION_TO_PROGRAMING_LANGUAGE[extension]
+            #TODO: Add method(s) for finding docstring when available
+            script_row = dict(code=code, path=script_path, url=script_directory, language=language, docstring=None)
+            script_df.append(script_row)
 
         script_df = pd.DataFrame(script_df)
         script_df = self.join_df_with_subdirectory_dfs(script_directory, script_df)
         script_df = self.join_df_with_codesearch(script_directory, script_df)
 
         # Shuffle the dataframe so that chunks taken from it are unbiased.
-        script_df = script_df.sample(frac=1)  if shuffle else script_df
+        script_df = script_df.sample(frac=1) if shuffle else script_df
         return script_df
 
-    @staticmethod
-    def parse_codesearch_payload(codesearch_payload):
+    def parse_codesearch_payload(self, codesearch_payload):
         '''
         Reads script text, script path, and script directory info from the payloads loaded from a
         CodeSearch jsonl file.
@@ -161,14 +163,13 @@ class CodeParser():
         file = open(codesearch_payload, 'r')
         payloads = file.read()
         payloads = [json.loads(payload) for payload in payloads.splitlines()]
-        codesearch_rows = [dict(document=payload['code'], script_path=payload['path'], script_directory=payload["url"],
-                                programming_language=payload["language"]) for payload in payloads]
+        codesearch_rows = [{column: payload[column] for column in self.codesearch_columns} for payload in payloads]
         code_search_df = pd.DataFrame(codesearch_rows)
         return code_search_df
 
     def delete_codesearch_payloads(self, directory):
         codesearch_paths = self.get_code_search_paths(directory, ".jsonl")
-        print(f'UPDATE: codesearch paths = {codesearch_paths}')
+        print(f'UPDATE: Deleting CodeSearch paths = {codesearch_paths}.')
 
         for path in codesearch_paths:
             os.remove(path)
