@@ -40,11 +40,14 @@ class PWFF(Layer):
 class TransformerEncoder(Model):
     self_attention_args = dict(num_heads=6, key_dim=100)
     dropout_args = dict(rate=.05)
+    embedding_args = dict(output_dim=100)
 
-    def __init__(self, input_dim, self_attention_args={}, normalization_args={}, dropout_args={}):
+    def __init__(self, input_dims, embedding_args={}, self_attention_args={}, normalization_args={}, dropout_args={}):
         super().__init__()
-        self.input_dim = input_dim
-        self.embedding = Embedding(input_dim=self.input_dim, output_dim=100)
+        self.input_dims = input_dims
+        self.embedding_args.update(embedding_args)
+        self.embedding_args["input_dim"] = self.input_dims
+        self.embedding = Embedding(**self.embedding_args)
         self.self_attention_args.update(self_attention_args)
         self.self_attention = MultiHeadAttention(**self.self_attention_args)
         self.normalization_args = normalization_args
@@ -55,9 +58,11 @@ class TransformerEncoder(Model):
 
     def get_config(self):
         config = super().get_config()
-        config["input_dim"] = self.input_dim
+        config["input_dims"] = self.input_dims
+        config["output_dims"] = self.output_dims
         config['self_attention_args'] = self.self_attention_args
         config['normalization_args'] = self.normalization_args
+        config["embedding_args"] = self.embedding_args
         return config
 
     def call(self, inputs):
@@ -73,7 +78,6 @@ class TransformerEncoder(Model):
         if get_rank(inputs) == 2:
             inputs = tf.expand_dims(inputs, axis=0)
         elif not get_rank(inputs):
-            #print(f'WARNING: Empty inputs tensor fed to TransformerEncoder. ')
             return tf.zeros(self.output_dims)
 
         attention_encodings = self.self_attention(query=inputs, value=inputs, key=inputs)
@@ -91,9 +95,9 @@ class TransformerDecoder(Layer):
     encoder_attention_args = dict(num_heads=6, key_dim=100)
     dropout_args = dict(rate=.1)
 
-    def __init__(self, input_dim, self_attention_args={}, normalization_args={}, dropout_args={}, encoder_attention_args={}):
+    def __init__(self, input_dims, self_attention_args={}, normalization_args={}, dropout_args={}, encoder_attention_args={}):
         super().__init__()
-        self.embedding_args["input_dim"] = input_dim
+        self.embedding_args["input_dims"] = input_dims
         self.embedding = Embedding(**self.embedding_args)
         self.self_attention_args.update(self_attention_args)
         self.self_attention = MultiHeadAttention(**self.self_attention_args)
@@ -138,12 +142,12 @@ class Transformer(Model):
 
     output_dense_args = dict()
 
-    def __init__(self, input_dim, output_dim=100, encoder_args={}, decoder_args={}, output_dense_args={}):
+    def __init__(self, input_dims, output_dim=100, encoder_args={}, decoder_args={}, output_dense_args={}):
         super().__init__()
-        self.encoder = TransformerEncoder(input_dim=input_dim, **encoder_args)
-        self.decoder = TransformerDecoder(input_dim=input_dim, **decoder_args)
+        self.encoder = TransformerEncoder(input_dims=input_dims, **encoder_args)
+        self.decoder = TransformerDecoder(input_dims=input_dims, **decoder_args)
         self.output_dense_args.update(output_dense_args)
-        self.units = input_dim
+        self.units = input_dims
         self.output_dense_args["units"] = output_dim
         self.output_dense = Dense(**self.output_dense_args)
         self.output_softmax = Softmax()
@@ -172,16 +176,16 @@ class RNNEncoder(Model):
     ARCHITECTURE_TO_MODEL = dict(lstm=LSTM, gru=GRU)
     model_args = dict(units=100)
 
-    def __init__(self, input_dim, embedding_dims=100, architecture='lstm', model_args={}):
+    def __init__(self, input_dims, embedding_dims=100, architecture='lstm', model_args={}):
         super().__init__()
-        self.input_dim = input_dim
+        self.input_dims = input_dims
         self.embedding_dims = embedding_dims
-        embedding_args = dict(input_dim=self.input_dim, output_dim=self.embedding_dims)
+        embedding_args = dict(input_dims=self.input_dims, output_dim=self.embedding_dims)
         self.embedding_args = embedding_args
         self.embedding = Embedding(**self.embedding_args)
         print(f'UPDATE: Embedding config = {self.embedding.get_config()}.')
-
         self.model_args.update(model_args)
+
         # Returns the entire sequence of hidden states, rather than just the most recent one.
         self.model_args['return_sequences'] = True
 
@@ -200,7 +204,7 @@ class RNNEncoder(Model):
         config = super().get_config()
         config['embedding_args'] = self.embedding_args
         config['model_args'] = self.model_args
-        config["input_dim"] = self.input_dim
+        config["input_dims"] = self.input_dims
         config["embedding_dims"] = self.embedding_dims
         config["output_dims"] = self.output_dims
         config["architecture"] = self.architecture
@@ -221,7 +225,6 @@ class RNNEncoder(Model):
             embedded_inputs = tf.expand_dims(embedded_inputs, axis=0)
 
         elif not get_rank(embedded_inputs):
-            print(f'WARNING: Flat embedded inputs fed to RNN layer! {embedded_inputs}')
             empty_outputs = tf.zeros(self.output_dims)
             return empty_outputs
 
@@ -253,9 +256,10 @@ class DeClutrContrastive(Model):
 
     sequence_structure_args = dict()
     encoder_args = dict(units=100)
+    embedding_args = dict(output_dim=100)
     SUPPORTED_ENCODERS = {'rnn': RNNEncoder, 'embedding': Embedding, 'transformer': TransformerEncoder}
-    RNN_ENCODER_ARGS = dict(model_args=dict(units=100, return_sequences=True))
-    TRANSFORMER_ARGS = dict()
+    RNN_ENCODER_ARGS = dict(embedding_args=embedding_args, model_args=dict(units=100, return_sequences=True))
+    TRANSFORMER_ARGS = dict(embedding_args=embedding_args)
     SUPPORTED_ENCODER_ARGS = {'rnn': RNN_ENCODER_ARGS, 'embedding': dict(output_dim=100), 'transformer': TRANSFORMER_ARGS}
 
     # Sequence summarization layers used to aggregate information along the time dimension. For example, each script
@@ -266,7 +270,7 @@ class DeClutrContrastive(Model):
                                          gru=GRU(return_sequences=False, units=100))
 
     def __init__(self, batch_size, pretrained_encoder=None, pretrained_encoder_name=None, encoder_config={},
-                 encoder_model='rnn', input_dim=None, models_directory="models", model_id='test', visualize_tensors=False,
+                 encoder_model='rnn', input_dims=None, models_directory="models", model_id='test', visualize_tensors=False,
                  sequence_summarization="average"):
 
         super().__init__()
@@ -278,7 +282,7 @@ class DeClutrContrastive(Model):
 
         self.encoder_config = self.SUPPORTED_ENCODER_ARGS[encoder_model]
         self.encoder_config.update(encoder_config)
-        self.encoder_config["input_dim"] = input_dim
+        self.encoder_config["input_dims"] = input_dims
         self.encoder, self.encoder_model = self.initialize_encoder(pretrained_encoder, encoder_model)
 
         # Pooler takes average over the embedding dimension.
@@ -357,6 +361,10 @@ class DeClutrContrastive(Model):
         return anchor_encoding
 
     def sequences_encoder_helper(self, contrasted_seqs):
+        '''
+        Prepare batch of sequences and encode them.
+        '''
+
         if self.pretrained_encoder_name == 'roberta-base' and get_rank(contrasted_seqs) == 3:
             contrasted_seqs = tf.squeeze(contrasted_seqs, axis=0)
 
