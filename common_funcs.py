@@ -7,8 +7,13 @@ import dill
 
 import tensorflow as tf
 
+import pandas as pd
+
 # NOTE: get_rank() will fail if not running eagerly.
 tf.executing_eagerly()
+
+get_default_feature_cols = lambda feature_count: [f"feature_{i}" for i in range(feature_count)]
+cast_tf_tokens = lambda tokens: tf.cast(tokens, dtype=tf.int32)
 
 def find_code_df_methods(code_df):
     '''
@@ -46,8 +51,8 @@ def get_rank(tensor):
         rank = 0
     return rank
 
-def get_sequence_processor(model_dir):
-    processor_path = os.path.join(model_dir, "sequence_processor.dill")
+def get_sequence_processor(model_dir, suffix="processor.dill"):
+    processor_path = os.path.join(model_dir, suffix)
 
     if not os.path.exists(processor_path):
         print(f"WARNING: Sequence processor path {processor_path} doesn't exist!")
@@ -56,3 +61,14 @@ def get_sequence_processor(model_dir):
     with open(processor_path, "rb") as file:
         processor = dill.load(file)
         return processor
+
+def add_features_to_df(feature_matrix, df, feature_names=None):
+    feature_count, sample_count = feature_matrix.shape
+
+    if sample_count != len(df):
+        raise ValueError(f"ERROR: Feature matrix sample count = {sample_count} != df rows = {len(df)}.")
+
+    feature_names = feature_names if feature_names else get_default_feature_cols(feature_count)
+    feature_df = pd.DataFrame(feature_matrix.tolist(), columns=feature_names)
+    df = pd.concat([df, feature_df], axis=1)
+    return df
