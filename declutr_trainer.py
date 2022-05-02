@@ -100,7 +100,7 @@ class DeClutrTrainer(SequenceProcessor):
     def make_programming_language_hist(self, code_df):
         layout_args = dict(title_text="Programming Language Distribution, Train Subset", title_x=0.5)
         hist = make_histogram(code_df, column="language", layout_args=layout_args)
-        path = os.path.join(self.model_dir, self.model_id, "programming_language_histogram.png")
+        path = os.path.join(self.model_dir, self.model_id, "programming_language_histogram.html")
         process_fig(fig=hist, path=path)
 
     def start_training_from_directory(self, code_directory, declutr_args={}):
@@ -149,7 +149,7 @@ class DeClutrTrainer(SequenceProcessor):
 
     def update_declutr_encoder_args(self, declutr_args, vocab_size):
         # Increment input dimension to account for the masked token if using a MLM architecture.
-        declutr_args['input_dim'] = vocab_size if self.declutr_model_class == 'declutr_contrastive' else vocab_size + 1
+        declutr_args['input_dims'] = vocab_size if self.declutr_model_class == 'declutr_contrastive' else vocab_size + 1
         declutr_args['batch_size'] = self.batch_size
         declutr_args["visualize_tensors"] = self.visualize_tensors
         return declutr_args
@@ -225,7 +225,7 @@ class DeClutrTrainer(SequenceProcessor):
         # different chunks and epochs.
         log_path = os.path.join(self.log_dir, 'fit_log.csv')
         csv_logger = CSVLogger(filename=log_path, append=True)
-        tensorboard = TensorBoard(log_dir=self.tensorboard_dir, write_images=True, update_freq='batch')
+        tensorboard = TensorBoard(log_dir=self.tensorboard_dir, write_images=True, update_freq='batch', embeddings_freq=1)
         checkpoint = ModelCheckpoint(filepath=os.path.join(self.model_dir, 'checkpoint'))
         callbacks = [csv_logger, tensorboard, checkpoint]
 

@@ -14,7 +14,7 @@ def get_arg_parser():
     arg_parser.add_argument("-lo", "--loss_objective", choices=["declutr_contrastive", "declutr_masked_"],
                             default="declutr_contrastive", help="The learning objective of the NN"
                                                                 " that determines its architecture.")
-    arg_parser.add_argument('-e', "--encoder_model", choices=["rnn", "transformer"], default='rnn')
+    arg_parser.add_argument('-em', "--encoder_model", choices=["rnn", "transformer"], default='rnn')
     arg_parser.add_argument("-s", "--sampling", type=float, default=1)
     arg_parser.add_argument("-sf", "--save_format", type=str, default="tf")
     arg_parser.add_argument("-vt", "--visualize_tensors", type=bool, default=False)
@@ -26,12 +26,14 @@ def get_arg_parser():
     arg_parser.add_argument("-nw", "--num_words", required=False, type=int, default=None,
                             help="Number of most popular words in vocabulary to keep.")
     #TODO: Add cross functionality support for scripts and docstrings. For starters, through a QA architecture.
-    arg_parser.add_argument("-tc", "--text_column", required=False, default="script", choices=["script", "docstring"],
+    arg_parser.add_argument("-tc", "--text_column", required=False, default="code", choices=["code", "docstring"],
                             help="Column in code dataframe whose text will be analyzed. ")
+    arg_parser.add_argument("-ed", "--embedding_dimensions", required=False, default=100, type=int,
+                            help="Length of each embedding vector fed to encoder layer.")
     return arg_parser
 
 def get_encoder_config(args):
-    encoder_config = {}
+    encoder_config = dict(embedding_args=dict(output_dim=args["embedding_dimensions"]))
 
     if args["encoder_model"] == "rnn":
         encoder_config["architecture"] = args["encoder_architecture"]
