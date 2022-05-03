@@ -16,7 +16,7 @@ from sequence_models import DeClutrContrastive, DeclutrMaskedLanguage
 from sequence_processor import SequenceProcessor
 from loss_functions import ContrastiveLoss, MaskedMethodLoss
 from tensor_visualizer import TensorVisualizer, VisualizerCallBack
-from visuals import make_histogram, process_fig
+from visuals import make_histogram, process_fig, make_histogram_comparison
 
 from itertools import product
 
@@ -25,6 +25,7 @@ from pathlib import Path
 import time
 
 import math
+import numpy as np
 
 import dill
 
@@ -44,10 +45,14 @@ class DeClutrTrainer(SequenceProcessor):
     DECLUTR_MODEL_CLASSES = dict(declutr_contrastive=DeClutrContrastive, declutr_masked_language=DeclutrMaskedLanguage)
     DECLUR_MODEL_LOSSES = dict(declutr_contrastive=ContrastiveLoss, declutr_masked_language=MaskedMethodLoss)
     code_parser_args = dict(programming_language="all")
+    SUBPLOT_XAXIS = [dict(title_text="Script Size (Tokens)") for i in range(2)]
+    SUBPLOT_YAXIS = [dict(title_text='Frequency') for i in range(2)]
+    LAYOUT_ARGS = dict(title_text="Document Size Distribution Before and After Filter", title_x=0.5)
+    XAXIS_RANGE = [0, 5000]
 
     def __init__(self, sequence_processor_args={}, code_parser_args={}, chunk_size=1000, epoch_count=3, train_split=.75,
-                 metrics=[], declutr_model="declutr_contrastive", encoder_model='lstm', save_format="tf", model_dir="models",
-                 tensorboard_dir="tensorboard_logs", save_training_data=True, visualize_tensors=False, sampling=1):
+                 metrics=[], declutr_model="declutr_contrastive", encoder_model='lstm', save_format="tf", models_dir="models",
+                 tensorboard_path="tensorboard_logs", save_training_data=True, visualize_tensors=False, sampling=1):
 
         super().__init__(**sequence_processor_args)
         declutr_model = self.loss_objective
@@ -76,14 +81,14 @@ class DeClutrTrainer(SequenceProcessor):
             self.pad_sequences = True
 
         self.save_format = save_format
-        self.tensorboard_dir = tensorboard_dir
+        self.tensorboard_path = tensorboard_path
         self.save_training_data = save_training_data
 
         # Whether to use TensorVisualizer for visualizing training outputs and labels.
         self.visualize_tensors = visualize_tensors
 
         # Parser for finding scripts and building text dataframes from which sequences are made.
-        self.model_dir = model_dir
+        self.models_dir = models_dir
         self.code_parser_args.update(code_parser_args)
         self.code_parser = CodeParser(**self.code_parser_args)
         self.sampling = sampling
@@ -116,9 +121,9 @@ class DeClutrTrainer(SequenceProcessor):
         self.model_id = declutr_args["model_id"]
         code_df = self.build_code_df(code_directory)
         code_df = self.preprocess_df(code_df)
-        self.make_programming_language_hist(code_df)
         self.fit_tokenizer_in_chunks(code_df)
         declutr_model = self.build_declutr_model(code_df=code_df, declutr_args=declutr_args)
+        self.make_programming_language_hist(code_df)
         self.train_model(declutr_model=declutr_model, document_df=code_df)
 
     def save_to_model_dir(self):
@@ -154,20 +159,24 @@ class DeClutrTrainer(SequenceProcessor):
         declutr_args["visualize_tensors"] = self.visualize_tensors
         return declutr_args
 
-    def update_from_model(self, declutr_model):
+    def set_directories(self, declutr_model):
         self.model_dir = declutr_model.model_dir
-        print(f'UPDATE: Setting Trainer model directory to {self.model_dir}.')
+        print(f"UPDATE: Setting Trainer model's directory to {self.model_dir}.")
         self.model_path = self.model_dir
 
         if self.save_format == 'h5':
             self.model_path = os.path.join(self.model_path, "declutr_model.h5")
+
+        self.document_length_hist_path = os.path.join(self.model_dir, "document_length_histogram.html")
+        self.tensorboard_dir = os.path.join(self.model_dir, self.tensorboard_path)
+        print(f"UPDATE: Setting Trainer's TensorBoard directory to {self.tensorboard_dir}.")
 
     def save_encoder(self, model):
         self.encoder_path = os.path.join(self.model_dir, "encoder")
         self.encoder_path = os.path.join(self.encoder_path, ".h5") if self.save_format == 'h5' else self.encoder_path
         encoder = model.encoder
         print(f"UPDATE: Saving encoder to {self.encoder_path}.")
-        save_model(encoder, filepath=self.encoder_path, save_format=self.save_format)
+        save_model(model=encoder, filepath=self.encoder_path, save_format=self.save_format)
 
     def build_tensor_visualizer(self, model_dir):
         tensor_visualizer = TensorVisualizer(tf_model_dir=model_dir) if self.visualize_tensors else None
@@ -187,23 +196,23 @@ class DeClutrTrainer(SequenceProcessor):
 
         if self.declutr_model == 'declutr_contrastive':
             print(f'UPDATE: Building contrastive DeClutr model with declutr args = {declutr_args}.')
-            declutr = self.declutr_model_class(**declutr_args)
+            declutr_model = self.declutr_model_class(**declutr_args)
         else:
             print(f'UPDATE: DeClutr trainer building method vocabulary from code df.')
             self.build_method_vocabulary(code_df)
             masked_vocabulary_size = self.get_method_vocab_size()
             print(f'UPDATE: Building MML model with masked vocab size = {masked_vocabulary_size}, '
                   f'masked index = {self.MASKED_INDEX} declutr args = {declutr_args}.')
-            declutr = self.declutr_model_class(masked_vocabulary_size=masked_vocabulary_size, masked_token=self.MASKED_INDEX,
+            declutr_model = self.declutr_model_class(masked_vocabulary_size=masked_vocabulary_size, masked_token=self.MASKED_INDEX,
                                                **declutr_args)
 
-        declutr.compile(optimizer=Adam(), loss=self.loss, metrics=self.metrics, run_eagerly=True)
-        self.update_from_model(declutr)
+        declutr_model.compile(optimizer=Adam(), loss=self.loss, metrics=self.metrics, run_eagerly=True)
+        self.set_directories(declutr_model)
 
         # Save trainer to the model directory for easy coordination during later usage\loading.
         self.save_to_model_dir()
-        self.tensor_visualizer = declutr.tensor_visualizer
-        return declutr
+        self.tensor_visualizer = declutr_model.tensor_visualizer
+        return declutr_model
 
     def update_callbacks_visuals(self, callbacks):
         if self.visualize_tensors:
@@ -225,7 +234,10 @@ class DeClutrTrainer(SequenceProcessor):
         # different chunks and epochs.
         log_path = os.path.join(self.log_dir, 'fit_log.csv')
         csv_logger = CSVLogger(filename=log_path, append=True)
-        tensorboard = TensorBoard(log_dir=self.tensorboard_dir, write_images=True, update_freq='batch', embeddings_freq=1)
+
+        #TODO: Class constants for these.
+        tensorboard = TensorBoard(log_dir=self.tensorboard_dir, write_images=True, update_freq='batch', embeddings_freq=1,
+                                  histogram_freq=1000)
         checkpoint = ModelCheckpoint(filepath=os.path.join(self.model_dir, 'checkpoint'))
         callbacks = [csv_logger, tensorboard, checkpoint]
 
@@ -278,6 +290,37 @@ class DeClutrTrainer(SequenceProcessor):
         else:
             return self.count_declutr_mmm_batches(document_df)
 
+    def filter_document_df(self, document_df, make_visuals=True):
+        '''
+        Filter documents by length and build/save Plotly histogram for it.
+        '''
+
+        document_count = len(document_df)
+        document_df = self.add_document_size_column(document_df)
+        document_sizes_before = document_df["document_size"].values
+        document_df = self.filter_documents_by_size(document_df)
+        document_sizes_after = document_df["document_size"].values
+        invalid_document_count = document_count - len(document_df)
+
+        if invalid_document_count:
+            print(f'WARNING: {invalid_document_count} documents were dropped due to small length.')
+            document_df.info()
+
+        if not make_visuals:
+            return document_df
+
+        # Make a side by side comparison of the document size distribution before and after filtering.
+        print(f'UPDATE: Making before and after document size histogram. ')
+        hist_vals = [document_sizes_before, document_sizes_after]
+        subplot_titles = [f"Before Filter, {len(hist_vals[0])} Scripts", f"After Filter, {len(hist_vals[1])} Scripts"]
+        xbins = dict(start=0, end=np.max(document_sizes_after), size=self.min_document_length)
+        fig = make_histogram_comparison(hist_vals=hist_vals, rows=1, cols=2, subplot_titles=subplot_titles,
+                                        subplot_xaxis=self.SUBPLOT_XAXIS, subplot_yaxis=self.SUBPLOT_YAXIS,
+                                        layout_args=self.LAYOUT_ARGS, histnorm="probability", xbins=xbins,
+                                        xaxis_range=self.XAXIS_RANGE)
+        process_fig(fig, self.document_length_hist_path)
+        return document_df
+
     def train_model(self, declutr_model, document_df):
         '''
         For each epoch, create new anchor spans + positive and negative samples from the document df.
@@ -285,7 +328,7 @@ class DeClutrTrainer(SequenceProcessor):
         '''
 
         document_df = self.tokenize_document_df(document_df)
-        document_df = self.filter_documents_by_size(document_df)
+        document_df = self.filter_document_df(document_df)
         self.chunk_count = math.ceil(len(document_df) / self.chunk_size)
 
         if self.save_training_data:

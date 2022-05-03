@@ -5,8 +5,6 @@ import plotly.graph_objs as go
 import os
 from pathlib import Path
 
-import pandas as pd
-
 import math
 
 import sys

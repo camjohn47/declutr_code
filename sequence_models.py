@@ -65,7 +65,7 @@ class TransformerEncoder(Model):
         config["embedding_args"] = self.embedding_args
         return config
 
-    def call(self, inputs):
+    def call(self, inputs, training=None):
         '''
         inputs (Tensor): An integer token tensor describing text in a sequence. Can be one of the following shapes\types:
                          1. (sequence length) Tensor
@@ -97,7 +97,7 @@ class TransformerDecoder(Layer):
 
     def __init__(self, input_dims, self_attention_args={}, normalization_args={}, dropout_args={}, encoder_attention_args={}):
         super().__init__()
-        self.embedding_args["input_dims"] = input_dims
+        self.embedding_args["input_dim"] = input_dims
         self.embedding = Embedding(**self.embedding_args)
         self.self_attention_args.update(self_attention_args)
         self.self_attention = MultiHeadAttention(**self.self_attention_args)
@@ -175,13 +175,13 @@ class RNNEncoder(Model):
 
     ARCHITECTURE_TO_MODEL = dict(lstm=LSTM, gru=GRU)
     model_args = dict(units=100)
+    embedding_args = dict(output_dim=100)
 
-    def __init__(self, input_dims, embedding_dims=100, architecture='lstm', model_args={}):
+    def __init__(self, input_dims, embedding_args={}, architecture='lstm', model_args={}):
         super().__init__()
         self.input_dims = input_dims
-        self.embedding_dims = embedding_dims
-        embedding_args = dict(input_dims=self.input_dims, output_dim=self.embedding_dims)
-        self.embedding_args = embedding_args
+        self.embedding_args.update(embedding_args)
+        self.embedding_args["input_dim"] = input_dims
         self.embedding = Embedding(**self.embedding_args)
         print(f'UPDATE: Embedding config = {self.embedding.get_config()}.')
         self.model_args.update(model_args)
@@ -205,7 +205,6 @@ class RNNEncoder(Model):
         config['embedding_args'] = self.embedding_args
         config['model_args'] = self.model_args
         config["input_dims"] = self.input_dims
-        config["embedding_dims"] = self.embedding_dims
         config["output_dims"] = self.output_dims
         config["architecture"] = self.architecture
         return config

@@ -36,7 +36,7 @@ class SequenceProcessor():
     anchor_args = dict(concentration1=4, concentration0=2)
     positive_sampling_args = dict(concentration1=2, concentration0=4)
 
-    def __init__(self, loss_objective="declutr_contrastive", tokenizer_args={}, min_anchor_length=32, max_anchor_length=112, anchor_args={},
+    def __init__(self, loss_objective="declutr_contrastive", tokenizer_args={}, min_anchor_length=32, max_anchor_length=64, anchor_args={},
                  positive_sampling_args={}, anchors_per_document=1, num_positive_samples=1, documents_per_batch=32,
                  chunk_size=int(1.0e3), max_document_length=512, pretrained_tokenizer=False, tokenizer_type=None,
                  tokenizer=None, sample_documents_with_replacement=False, pad_sequences=False, mmm_sample=.1, text_column="code"):
@@ -174,7 +174,7 @@ class SequenceProcessor():
     def fit_tokenizer_in_chunks(self, document_df, chunk_size=1.0e3):
         document_count = len(document_df)
         chunk_count = math.ceil(document_count / chunk_size)
-        print(f'UPDATE: Tokenization on document chunks in progress. ')
+        print(f'UPDATE: Tokenization on document chunks in progress.')
         progress_bar = Progbar(target=chunk_count, stateful_metrics=["document_count", "vocabulary_size"])
         document_count = 0
 
@@ -226,40 +226,21 @@ class SequenceProcessor():
         positive_sequence = tf.cast(positive_sequence, tf.int32)
         return positive_sequence
 
-    def filter_documents_by_size(self, document_df, make_visuals=True):
+    def add_document_size_column(self, document_df):
+        document_df["document_size"] = document_df.apply(lambda row: len(row['document_tokens']), axis=1)
+        return document_df
+
+    def filter_documents_by_size(self, document_df):
         '''
         Removes documents in the dataframe that have less than <self.min_document_length> tokens.
 
         Inputs
-        document_df (DataFrame): Tokenized document dataframe with a "document_tokens" column. It must be tokenized.
-        make_visuals (bool)    : Whether to make document size histogram comparison.
+        document_df (DataFrame): Tokenized document dataframe with a "document_tokens" column.
         '''
 
-        document_df['document_size'] = document_df.apply(lambda row: len(row['document_tokens']), axis=1)
+        document_df = self.add_document_size_column(document_df) if "document_size" not in document_df.columns else document_df
         valid_inds = document_df["document_size"] >= self.min_document_length
-        document_count = len(document_df)
-        document_sizes_before = document_df["document_size"].values
         document_df = document_df[valid_inds]
-        document_sizes_after = document_df["document_size"].values
-        invalid_document_count = document_count - len(document_df)
-
-        if invalid_document_count:
-            print(f'WARNING: {invalid_document_count} documents were dropped due to small length.')
-
-        # Make a side by side comparison of the document size distribution before and after filtering.
-        if make_visuals:
-            print(f'UPDATE: Making before and after document size histogram. ')
-            hist_vals = [document_sizes_before, document_sizes_after]
-            subplot_xaxis = [dict(title_text="Script Size (Tokens)") for i in range(2)]
-            subplot_yaxis = [dict(title_text='Frequency') for i in range(2)]
-            subplot_titles = [f"Before Filter, {len(hist_vals[0])} Scripts", f"After Filter, {len(hist_vals[1])} Scripts"]
-            layout_args = dict(title_text="Document Size Distribution Before and After Filter", title_x=0.5)
-            xbins = dict(start=0, end=np.max(document_sizes_after), size=self.min_document_length)
-            xaxis_range = [0, 5000]
-            make_histogram_comparison(hist_vals=hist_vals, rows=1, cols=2, subplot_titles=subplot_titles,
-                                      subplot_xaxis=subplot_xaxis, subplot_yaxis=subplot_yaxis, layout_args=layout_args,
-                                      histnorm="probability", xbins=xbins, xaxis_range=xaxis_range)
-
         return document_df
 
     def build_document_input_sequences(self, document_tokens):
@@ -474,7 +455,6 @@ class SequenceProcessor():
                 print(f'WARNING: Empty masked anchor sequence. Skipping this MMM batch.')
                 continue
 
-            #print(f'UPDATE: mmm inputs length = {len(mmm_inputs)}, mmm labels shape {mmm_labels.shape}.')
             yield mmm_inputs, mmm_labels
 
     def count_declutr_mmm_batches(self, document_df):

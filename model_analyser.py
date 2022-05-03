@@ -19,12 +19,14 @@ class ModelAnalyser():
         fit_log = pd.read_csv(fit_log_path)
         return fit_log, fit_log_path
 
-    def get_fit_log_chunk(self, fit_log_path):
+    @staticmethod
+    def get_fit_log_chunk(fit_log_path):
         chunk_str = re.findall(r"(?<=chunk_)\d+", fit_log_path)[0]
         chunk = int(chunk_str)
         return chunk
 
-    def sort_by_chunk_epoch(self, df):
+    @staticmethod
+    def sort_by_chunk_epoch(df):
         df.sort_values(by=["chunk", "epoch"], inplace=True)
         columns = df.columns.tolist()
         columns.pop(-1)
@@ -52,14 +54,12 @@ class ModelAnalyser():
         joined_fit_log = self.sort_by_chunk_epoch(joined_fit_log)
         return joined_fit_log
 
-    def increment_epochs(self, fit_df):
+    @staticmethod
+    def increment_epochs(fit_df):
         '''
         Each epoch appears as zero in original fit log because we reset negative samples for each cycle.
         This increments them to be unique and accurate.
         '''
 
-        self.epoch = 0
-        print(f"UPDATE: epoch before increment = {fit_df['epoch'].values}")
         fit_df["epoch"] = fit_df.apply(lambda row: row.name, axis=1)
-        print(f"UPDATE: epoch after increment = {fit_df['epoch'].values}")
         return fit_df
