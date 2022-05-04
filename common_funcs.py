@@ -9,11 +9,18 @@ import tensorflow as tf
 
 import pandas as pd
 
+from code_parser import CodeParser
+
 # NOTE: get_rank() will fail if not running eagerly.
 tf.executing_eagerly()
 
 get_default_feature_cols = lambda feature_count: [f"feature_{i}" for i in range(feature_count)]
 cast_tf_tokens = lambda tokens: tf.cast(tokens, dtype=tf.int32)
+
+# Get arg parse abbreviation of an arg by joining each word's first letter.
+get_argparse_name = lambda arg: "-" + "".join([word[0].lower() for word in arg.split("_")])
+
+TRAINING_DF_PATH = os.path.join("processed_data", "training_data.csv")
 
 def find_code_df_methods(code_df):
     '''
@@ -72,3 +79,29 @@ def add_features_to_df(feature_matrix, df, feature_names=None):
     feature_df = pd.DataFrame(feature_matrix.tolist(), columns=feature_names)
     df = pd.concat([df, feature_df], axis=1)
     return df
+
+def mix_lists(lists):
+    '''
+    Returns a list made by taking pairs from each list <a> and <b>.
+    '''
+
+    equal_length = lambda list_a, list_b: len(list_a) == len(list_b)
+    lists_have_equal_length = all([equal_length(list_a, lists[0]) for list_a in lists])
+
+    if not lists_have_equal_length:
+        raise ValueError(f"ERROR: Tried to mix lists with uneqal lengths = {[len(x) for x in lists]}!")
+
+    list_count = len(lists)
+    item_count = len(lists[0])
+    mixed_lists = [lists[i][j] for j in range(item_count) for i in range(list_count)]
+    return mixed_lists
+
+def get_code_df(sampling=.1, use_cached=True):
+    if use_cached:
+        code_df = pd.read_csv(TRAINING_DF_PATH)
+    else:
+        code_parser = CodeParser(programming_language="all")
+        code_df = code_parser.code_directory_to_df(os.getcwd())
+
+    code_df = code_df.sample(frac=sampling)
+    return code_df
