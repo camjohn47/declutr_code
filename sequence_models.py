@@ -197,7 +197,7 @@ class RNNEncoder(Model):
         self.model = self.ARCHITECTURE_TO_MODEL[self.architecture]
         self.model = self.model(**self.model_args)
 
-        # Dimensions of LSTMEncoder's final output vector.
+        # Dimensions of RNNEncoder's final output vector.
         self.output_dims = self.model_args["units"]
 
     def get_config(self):
@@ -223,6 +223,7 @@ class RNNEncoder(Model):
         if get_rank(embedded_inputs) == 2:
             embedded_inputs = tf.expand_dims(embedded_inputs, axis=0)
 
+        #TODO: This is probably the cause of zero outputs for loaded RNNEncoder. Change to tf function and test call after loading.
         elif not get_rank(embedded_inputs):
             empty_outputs = tf.zeros(self.output_dims)
             return empty_outputs
@@ -387,6 +388,7 @@ class DeClutrContrastive(Model):
         '''
         Save the outputs to the TensorVisualizer for building visuals, if specified.
         '''
+
         if self.tensor_visualizer:
             self.tensor_visualizer.record_training_outputs(output_probs, [])
 
@@ -398,8 +400,8 @@ class DeClutrContrastive(Model):
         inputs: A dictionary containing an anchor sequence tensor and a contrasted sequences tensor.
 
         Outputs
-        positive_sequence_probs (Tensor): Tensor containing the probabilities of each contrasted sequence
-                                          being the positive sample for the anchor sequence.
+        positive_sequence_probs (Tensor): Tensor containing the probabilities of each contrasted sequence being the
+                                          positive sample for the anchor sequence.
         '''
 
         anchor = inputs['anchor_sequence']

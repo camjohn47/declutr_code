@@ -39,7 +39,7 @@ class SequenceProcessor():
     def __init__(self, loss_objective="declutr_contrastive", tokenizer_args={}, min_anchor_length=32, max_anchor_length=64, anchor_args={},
                  positive_sampling_args={}, anchors_per_document=1, num_positive_samples=1, documents_per_batch=32,
                  chunk_size=int(1.0e3), max_document_length=512, pretrained_tokenizer=False, tokenizer_type=None,
-                 tokenizer=None, sample_documents_with_replacement=False, pad_sequences=False, mmm_sample=.1, text_column="code"):
+                 tokenizer=None, sample_documents_with_replacement=False, pad_sequences=False, mmm_sample=.1):
         self.min_anchor_length = min_anchor_length
         self.max_anchor_length = max_anchor_length
 
@@ -84,25 +84,10 @@ class SequenceProcessor():
         self.dataset_method = self.LOSS_OBJECTIVE_TO_DATASET_METHOD[self.loss_objective]
         self.method_vocabulary = None
         self.cardinality_estimate = 0
-        self.text_column = text_column
 
         # Lambdas for document -> DeClutr sequence index conversion.
         self.map_sequence_to_doc_ind = lambda i: math.floor(i / (2 * self.anchors_per_document * self.num_positive_samples))
         self.map_doc_to_contrasted_ind = lambda i: self.map_sequence_to_doc_ind(i)
-
-    def preprocess_df(self, df):
-        '''
-        Check text availability and drop rows with nan text.
-        '''
-
-        if self.text_column not in df.columns:
-            raise ValueError(f"ERROR: {self.text_column} not in df columns = {df.columns}.")
-
-        total_docs = len(df)
-        df.dropna(subset=[self.text_column], inplace=True)
-        nan_docs = total_docs - len(df)
-        print(f'WARNING: {nan_docs} documents dropped with nan.')
-        return df
 
     def initialize_tokenizer(self, tokenizer, tokenizer_type):
         # If pre-trained tokenizer is specified, the type and tokenizer itself must be provided.
@@ -135,6 +120,7 @@ class SequenceProcessor():
         document_count = len(df)
         document_inds = range(document_count)
 
+        # Yields at least one batch for each document.
         for document_ind in document_inds:
             negative_sample_count = min(document_count, documents_per_chunk - 1)
 
@@ -161,17 +147,17 @@ class SequenceProcessor():
             df_chunk = df.take(chunk_inds)
             yield df_chunk
 
-    def fit_tokenizer_on_documents(self, document_df):
-        documents = document_df[self.text_column].values
+    def fit_tokenizer_on_documents(self, document_df, text_column):
+        documents = document_df[text_column].values
 
         if self.pretrained_tokenizer:
             pass
         else:
-            document_df[self.text_column] = self.tokenizer.fit_on_texts(documents)
+            self.tokenizer.fit_on_texts(documents)
 
         return document_df
 
-    def fit_tokenizer_in_chunks(self, document_df, chunk_size=1.0e3):
+    def fit_tokenizer_in_chunks(self, document_df, text_column, chunk_size=1.0e3):
         document_count = len(document_df)
         chunk_count = math.ceil(document_count / chunk_size)
         print(f'UPDATE: Tokenization on document chunks in progress.')
@@ -179,7 +165,7 @@ class SequenceProcessor():
         document_count = 0
 
         for i, document_df_chunk in enumerate(self.partition_df(document_df, chunk_size)):
-            self.fit_tokenizer_on_documents(document_df_chunk)
+            self.fit_tokenizer_on_documents(document_df_chunk, text_column=text_column)
             vocab_size = self.get_vocab_size()
             document_count += len(document_df_chunk)
             progress_values = [["document_count", document_count], ["vocabulary_size", vocab_size]]
@@ -336,13 +322,12 @@ class SequenceProcessor():
         batch_labels = tf.expand_dims(batch_labels, axis=0)
         return batch_labels
 
-    def tokenize_document_df(self, document_df):
+    def tokenize_document_df(self, document_df, text_column):
         '''
-        Add a tokenized documents column to the input <document_df>. Each document is tokenized with
-        the processor's tokenizer.
+        Add a tokenized documents column to the input <document_df>. Each document is tokenized with the processor's tokenizer.
         '''
 
-        documents = document_df[self.text_column].values
+        documents = document_df[text_column].values
 
         if self.pretrained_tokenizer:
             documents = documents.tolist()
@@ -385,6 +370,7 @@ class SequenceProcessor():
             print(f'ERROR! Tried to add column {column} not available in df columns = {df.columns}.')
             sys.exit(1)
 
+        #TODO: Modularize this method.
         column_vals = df[column].values
         anchor_document_ind = self.map_sequence_to_doc_ind(anchor_ind)
         anchor_val = column_vals[anchor_document_ind]
@@ -411,8 +397,7 @@ class SequenceProcessor():
         add_columns (list):      Columns from document_df to include with each batch of sequences.
 
         Outputs
-        declutr_dataset (dict): Dictionary with batches of positive and negative input token sequences
-                                used for training.
+        declutr_dataset (dict): Dictionary with batches of positive and negative input token sequences used for training.
         '''
 
         # Pre-process and tokenize the document df.
@@ -433,13 +418,11 @@ class SequenceProcessor():
 
     def yield_declutr_mmm_batches(self, document_df):
         '''
-        Add masked anchor to inputs and labels of masked tokens to labels. This allows for masked method
-        modeling.
+        Add masked anchor to inputs and labels of masked tokens to labels. This allows for masked method modeling.
         '''
 
         if not self.method_vocabulary:
-            print(f'WARNING: Declutr MMM batches called without method vocabulary. Building method '
-                  f'vocab now.')
+            print(f'WARNING: Declutr MMM batches called without method vocabulary. Building method vocab now.')
             self.build_method_vocabulary(document_df)
 
         for inputs, labels in self.yield_declutr_contrastive_batches(document_df):
@@ -447,8 +430,9 @@ class SequenceProcessor():
             mmm_inputs, mmm_labels = self.build_mmm_inputs(anchor)
             no_methods_found = mmm_labels.shape[0] == 0
 
+            # This is fine, as some spans won't contain any methods. Especially true for docstrings because they're
+            # written in natural language.
             if no_methods_found:
-                print(f'WARNING: No methods found in anchor sequence. Skipping this MMM batch.')
                 continue
 
             if not mmm_inputs:
@@ -462,6 +446,7 @@ class SequenceProcessor():
         Add masked anchor to inputs and labels of masked tokens to labels. This allows for masked method
         modeling.
         '''
+
         batch_count = 0
 
         for inputs, labels in self.yield_declutr_mmm_batches(document_df):
@@ -475,8 +460,8 @@ class SequenceProcessor():
             code_df = find_code_df_methods(code_df)
 
         elif not self.tokenizer.word_index:
-            print(f'WARNING: Processor tokenizer hasnt fit on code df during method vocab building.')
-            self.fit_tokenizer_in_chunks(code_df)
+            print(f"WARNING: Processor tokenizer hasn't fit on code df during method vocab building.")
+            self.fit_tokenizer_in_chunks(code_df, text_column="code")
 
         methods = list(chain.from_iterable(code_df['methods'].values.tolist()))
         self.method_vocabulary = [method for method in methods if method in self.tokenizer.word_index]
@@ -504,7 +489,7 @@ class SequenceProcessor():
         masked_out_method_count = int(self.mmm_sample * len(anchor_method_inds))
         masked_out_inds = random.sample(anchor_method_inds, k=masked_out_method_count)
 
-        # Replace masked out tokens with -1. +
+        # Replace masked out tokens with -1.
         masked_out_anchor_sequence = [token if i not in masked_out_inds else self.MASKED_INDEX for i, token in enumerate(anchor_sequence)]
         masked_out_tokens = [anchor_sequence[i] for i in masked_out_inds]
         masked_out_one_hot = tf.one_hot(indices=masked_out_tokens, depth=self.get_method_vocab_size())
@@ -521,7 +506,6 @@ class SequenceProcessor():
         input_spec = dict(anchor_sequence=tf.TensorSpec(shape=(None,), dtype=tf.int32),
                           contrasted_sequences=tf.type_spec_from_value(contrasted_sample))
         output_signature = (input_spec, tf.TensorSpec(shape=(1, self.batch_size), dtype=tf.int32))
-        print(f'UPDATE: Output signature for Declutr dataset: {output_signature}.')
         gen = partial(self.yield_declutr_contrastive_batches, document_df=document_df)
         dataset = Dataset.from_generator(gen, output_signature=output_signature)
         return dataset
@@ -545,7 +529,7 @@ class SequenceProcessor():
 
     def get_vocab_size(self):
         '''
-        Return size of tokenizer's vocabulary = number of unique words\tokens it's seen.
+        Return tokenizer's vocabulary size.
         '''
         
         vocab = self.tokenizer.index_word if not self.pretrained_tokenizer else self.tokenizer.get_vocab()

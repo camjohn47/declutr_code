@@ -10,7 +10,7 @@ from tensorflow.data.experimental import cardinality
 from tensorflow.keras.models import save_model
 from tensorflow.keras.losses import CategoricalCrossentropy as cross_entropy
 
-from common_funcs import run_with_time
+from common_funcs import run_with_time, drop_nan_text
 from code_parser import CodeParser
 from sequence_models import DeClutrContrastive, DeclutrMaskedLanguage
 from sequence_processor import SequenceProcessor
@@ -36,6 +36,7 @@ class DeClutrTrainer(SequenceProcessor):
     # Number top categories included for top k categorical accuracy. For ex, if model predicts true
     # class as 2nd or 3rd highest, these would both be considered correct with TOP_K=3.
     TOP_K = 3
+    #TODO: Build top k label in class and express as fraction of batch size.
     metrics = [CategoricalAccuracy(), TopKCategoricalAccuracy(k=TOP_K, name=f"top_{TOP_K}_categorical_accuracy")]
 
     # Hyper-parameters and domains optimized with tensorboard hparams.
@@ -52,7 +53,7 @@ class DeClutrTrainer(SequenceProcessor):
 
     def __init__(self, sequence_processor_args={}, code_parser_args={}, chunk_size=1000, epoch_count=3, train_split=.75,
                  metrics=[], declutr_model="declutr_contrastive", encoder_model='lstm', save_format="tf", models_dir="models",
-                 tensorboard_path="tensorboard_logs", save_training_data=True, visualize_tensors=False, sampling=1):
+                 tensorboard_dir="tensorboard_logs", save_training_data=True, visualize_tensors=False, sampling=1, text_column="code"):
 
         super().__init__(**sequence_processor_args)
         declutr_model = self.loss_objective
@@ -81,7 +82,8 @@ class DeClutrTrainer(SequenceProcessor):
             self.pad_sequences = True
 
         self.save_format = save_format
-        self.tensorboard_path = tensorboard_path
+        self.tensorboard_dir = tensorboard_dir
+        print(f"UPDATE: Setting Trainer's TensorBoard directory to {self.tensorboard_dir}.")
         self.save_training_data = save_training_data
 
         # Whether to use TensorVisualizer for visualizing training outputs and labels.
@@ -92,6 +94,9 @@ class DeClutrTrainer(SequenceProcessor):
         self.code_parser_args.update(code_parser_args)
         self.code_parser = CodeParser(**self.code_parser_args)
         self.sampling = sampling
+
+        # Column of text used for training. Either "code," or "docstring."
+        self.text_column = text_column
 
     def build_code_df(self, code_directory):
         func = self.code_parser.code_directory_to_df
@@ -120,8 +125,8 @@ class DeClutrTrainer(SequenceProcessor):
 
         self.model_id = declutr_args["model_id"]
         code_df = self.build_code_df(code_directory)
-        code_df = self.preprocess_df(code_df)
-        self.fit_tokenizer_in_chunks(code_df)
+        code_df = drop_nan_text(code_df, text_column=self.text_column)
+        self.fit_tokenizer_in_chunks(code_df, text_column=self.text_column)
         declutr_model = self.build_declutr_model(code_df=code_df, declutr_args=declutr_args)
         self.make_programming_language_hist(code_df)
         self.train_model(declutr_model=declutr_model, document_df=code_df)
@@ -168,8 +173,7 @@ class DeClutrTrainer(SequenceProcessor):
             self.model_path = os.path.join(self.model_path, "declutr_model.h5")
 
         self.document_length_hist_path = os.path.join(self.model_dir, "document_length_histogram.html")
-        self.tensorboard_dir = os.path.join(self.model_dir, self.tensorboard_path)
-        print(f"UPDATE: Setting Trainer's TensorBoard directory to {self.tensorboard_dir}.")
+        #self.tensorboard_dir = os.path.join(self.model_dir, self.tensorboard_path)
 
     def save_encoder(self, model):
         self.encoder_path = os.path.join(self.model_dir, "encoder")
@@ -204,7 +208,7 @@ class DeClutrTrainer(SequenceProcessor):
             print(f'UPDATE: Building MML model with masked vocab size = {masked_vocabulary_size}, '
                   f'masked index = {self.MASKED_INDEX} declutr args = {declutr_args}.')
             declutr_model = self.declutr_model_class(masked_vocabulary_size=masked_vocabulary_size, masked_token=self.MASKED_INDEX,
-                                               **declutr_args)
+                                                     **declutr_args)
 
         declutr_model.compile(optimizer=Adam(), loss=self.loss, metrics=self.metrics, run_eagerly=True)
         self.set_directories(declutr_model)
@@ -314,6 +318,8 @@ class DeClutrTrainer(SequenceProcessor):
         hist_vals = [document_sizes_before, document_sizes_after]
         subplot_titles = [f"Before Filter, {len(hist_vals[0])} Scripts", f"After Filter, {len(hist_vals[1])} Scripts"]
         xbins = dict(start=0, end=np.max(document_sizes_after), size=self.min_document_length)
+
+        #TODO: Simplify this by moving constant arguments to a class dictionary.
         fig = make_histogram_comparison(hist_vals=hist_vals, rows=1, cols=2, subplot_titles=subplot_titles,
                                         subplot_xaxis=self.SUBPLOT_XAXIS, subplot_yaxis=self.SUBPLOT_YAXIS,
                                         layout_args=self.LAYOUT_ARGS, histnorm="probability", xbins=xbins,
@@ -327,7 +333,7 @@ class DeClutrTrainer(SequenceProcessor):
         Then use these sequences as inputs and outputs for training the declutr model.
         '''
 
-        document_df = self.tokenize_document_df(document_df)
+        document_df = self.tokenize_document_df(document_df, text_column=self.text_column)
         document_df = self.filter_document_df(document_df)
         self.chunk_count = math.ceil(len(document_df) / self.chunk_size)
 
@@ -344,7 +350,7 @@ class DeClutrTrainer(SequenceProcessor):
                 self.build_fit_directory()
                 dataset = self.get_dataset(chunk_df)
                 self.batch_count = cardinality(dataset) if cardinality(dataset) != tf.data.experimental.UNKNOWN_CARDINALITY\
-                              else self.get_batch_count(chunk_df)
+                                   else self.get_batch_count(chunk_df)
                 train_steps = int(self.batch_count * self.train_split)
                 val_steps = self.batch_count - train_steps
                 dataset_train = dataset.take(train_steps)
