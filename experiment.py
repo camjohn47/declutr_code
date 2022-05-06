@@ -9,6 +9,8 @@ import re
 
 #TODO: Experiment abstract class that can be used for NEL, NER, CodeSearch, ... experiments.
 class Experiment(abc.ABC):
+    EXPERIMENTS_DIRECTORY = "experiments"
+
     def __int__(self, variable_arg, variable_domain, constant_arg_vals, script, constant_args, id_template="VARIABLE=VALUE"):
         self.variable_arg = variable_arg
         self.variable_domain = variable_domain
@@ -27,6 +29,10 @@ class Experiment(abc.ABC):
 
     @abstractmethod
     def get_config(self):
+        pass
+
+    @abstractmethod
+    def build_experiment_id(self):
         pass
 
     # Methods used for generating subprocess arguments of different experiment trials/values.
@@ -65,7 +71,7 @@ class Experiment(abc.ABC):
         variable_value: Current value of the experiment's variable.
 
         Outputs
-        Argument list used to execute subprocess for this trial of the experiment.
+        Argument list for executing subprocess of this experiment trial.
         '''
 
         constant_argparse_names = self.get_argparse_constants()
@@ -75,6 +81,11 @@ class Experiment(abc.ABC):
         script_call_args = self.add_model_id(name_values, variable_value)
         script_call_args = self.add_prefix(script_call_args)
         return script_call_args
+
+    def get_model_ids(self):
+        model_ids = list(map(self.get_model_id, self.variable_domain))
+        return model_ids
+
 
 
 
