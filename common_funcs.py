@@ -11,6 +11,8 @@ import pandas as pd
 
 from code_parser import CodeParser
 
+from sklearn.decomposition import PCA
+
 # NOTE: get_rank() will fail if not running eagerly.
 tf.executing_eagerly()
 
@@ -97,6 +99,10 @@ def mix_lists(lists):
     return mixed_lists
 
 def get_code_df(sampling=.1, use_cached=True):
+    '''
+    Return a code-based dataframe with natural language description and script columns.
+    '''
+
     if use_cached:
         code_df = pd.read_csv(TRAINING_DF_PATH)
     else:
@@ -105,3 +111,38 @@ def get_code_df(sampling=.1, use_cached=True):
 
     code_df = code_df.sample(frac=sampling)
     return code_df
+
+def reduce_matrix(matrix, target_dims):
+    matrix = PCA(n_components=target_dims).fit_transform(matrix)
+    return matrix
+
+def drop_nan_text(df, text_column):
+    '''
+    Check text availability and drop rows with nan text.
+    '''
+
+    if text_column not in df.columns:
+        raise ValueError(f"ERROR: {text_column} not in df columns = {df.columns}.")
+
+    total_docs = len(df)
+    df.dropna(subset=[text_column], inplace=True)
+    nan_docs = total_docs - len(df)
+    print(f'WARNING: {nan_docs} documents dropped with nan.')
+    return df
+
+#TODO: Add text column argument to tokenize_df() in SequenceProcessor so this can be removed.
+def tokenize_df_wrapper(sequence_processor, document_df, text_column):
+    '''
+    Add a tokenized documents column to the input <document_df>. Each document is tokenized with the processor's tokenizer.
+    '''
+
+    documents = document_df[text_column].values
+
+    if sequence_processor.pretrained_tokenizer:
+        documents = documents.tolist()
+        documents_tokenized = list(map(sequence_processor.tokenizer.tokenize, documents))
+        document_df['document_tokens'] = list(map(sequence_processor.tokenizer.convert_tokens_to_ids, documents_tokenized))
+    else:
+        document_df['document_tokens'] = sequence_processor.tokenizer.texts_to_sequences(documents)
+
+    return document_df
