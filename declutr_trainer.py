@@ -173,7 +173,6 @@ class DeClutrTrainer(SequenceProcessor):
             self.model_path = os.path.join(self.model_path, "declutr_model.h5")
 
         self.document_length_hist_path = os.path.join(self.model_dir, "document_length_histogram.html")
-        #self.tensorboard_dir = os.path.join(self.model_dir, self.tensorboard_path)
 
     def save_encoder(self, model):
         self.encoder_path = os.path.join(self.model_dir, "encoder")

@@ -30,6 +30,8 @@ def get_arg_parser():
                             help="Column in code dataframe whose text will be analyzed. ")
     arg_parser.add_argument("-ed", "--embedding_dimensions", required=False, default=100, type=int,
                             help="Length of each embedding vector fed to encoder layer.")
+    arg_parser.add_argument("-td", "--tensorboard_dir", required=False,
+                            help="Directory where tf model fit/validation logs are saved for later analysis.")
     return arg_parser
 
 def get_encoder_config(args):
@@ -45,11 +47,12 @@ def get_args():
     args = vars(arg_parser.parse_args())
     code_parser_args = dict(programming_language=args["programming_language"])
     tokenizer_args = dict(num_words=args["num_words"])
-    sequence_processor_args = dict(loss_objective=args["loss_objective"], tokenizer_args=tokenizer_args, text_column=args["text_column"])
+    sequence_processor_args = dict(loss_objective=args["loss_objective"], tokenizer_args=tokenizer_args)
     sampling = args["sampling"]
     encoder_config = get_encoder_config(args)
     declutr_trainer_args = dict(sequence_processor_args=sequence_processor_args, encoder_model=args["encoder_model"],
-                                save_format=args["save_format"], visualize_tensors=args["visualize_tensors"], sampling=sampling)
+                                save_format=args["save_format"], visualize_tensors=args["visualize_tensors"], sampling=sampling,
+                                tensorboard_dir=args["tensorboard_dir"], text_column=args["text_column"])
     declutr_model_args = dict(encoder_model=args["encoder_model"], model_id=args["model_id"], encoder_config=encoder_config,
                               sequence_summarization=args["sequence_summarization"])
     declutr_trainer_args["code_parser_args"] = code_parser_args
