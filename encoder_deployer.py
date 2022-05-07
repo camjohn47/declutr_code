@@ -8,7 +8,7 @@ import numpy as np
 
 from sequence_models import DeClutrContrastive, TransformerEncoder, RNNEncoder
 
-from common_funcs import get_sequence_processor, run_with_time, add_features_to_df, get_default_feature_cols, cast_tf_tokens
+from common_funcs import get_sequence_processor, run_with_time, cast_tf_tokens, tokenize_df_wrapper, drop_nan_text
 
 import os
 
@@ -24,16 +24,15 @@ class EncoderDeployer():
         self.models_dir = models_dir
         self.model_dir = os.path.join(self.models_dir, self.model_id)
         self.initialize_encoder(encoder_model)
-        input_layer = self.encoder.layers[0]
-        print(f"UPDATE: Input spec for input layer: {input_layer.input_spec}")
+        self.embedding = self.encoder.layers[0]
+        print(f"UPDATE: Embedding layer config: {self.embedding.get_config()}")
         self.sequence_processor = get_sequence_processor(self.model_dir)
         vocab = self.sequence_processor.tokenizer.word_index
-        print(f"UPDATE: Sequence processor vocab = {vocab}.")
 
         # Default output label prefix of each feature is model_id.
         self.output_label = output_label if output_label else model_id
         self.text_column = text_column
-        self.feature_method = self.make_features_from_padded if self.sequence_processor.pad_sequences else self.make_features_from_ragged
+        self.prepare_method = self.prepare_padded_sequences if self.sequence_processor.pad_sequences else self.prepare_ragged_sequences
 
     def initialize_encoder(self, encoder_model):
         self.encoder_dir = os.path.join(self.model_dir, "encoder")
@@ -43,47 +42,88 @@ class EncoderDeployer():
         print(f"UPDATE: ModelDeployer model summary below.")
         self.encoder.summary()
 
-    def make_features_from_ragged(self, token_sequences):
+    def prepare_ragged_sequences(self, token_sequences):
+        ragged_sequences = tf.ragged.stack([cast_tf_tokens(tokens) for tokens in token_sequences])
+        return ragged_sequences
+
+    def prepare_padded_sequences(self, token_sequences):
+        pad_length = self.sequence_processor.max_anchor_length
+        padded_sequences = pad_sequences(token_sequences, maxlen=pad_length, padding="post")
+        return padded_sequences
+
+    def make_features_from_sequences(self, token_sequences):
         '''
         Represent ragged/variable-length token sequences with a features matrix.
         '''
 
-        token_sequences = tf.ragged.stack([cast_tf_tokens(tokens) for tokens in token_sequences])
         feature_matrix = []
         sequence_count = token_sequences.shape[0]
         print(f"UPDATE: Starting deployment tokenization of {sequence_count} sequences.")
         prog_bar = Progbar(target=sequence_count)
+        embedding_layer = self.encoder.layers[0]
+        encoder_layer = self.encoder.layers[-1]
 
         for i, sequence in enumerate(token_sequences):
-            features = self.encoder(sequence)
-            feature_matrix.append(features)
+            if not len(sequence):
+                continue
+
+            sequence = tf.cast(sequence, tf.int32)
+            embedding = embedding_layer(sequence)
+            embedding = tf.expand_dims(embedding, axis=0) if tf.rank(embedding) == 2 else embedding
+
+            if len(embedding) == 0:
+                print(f"WARNING: Empty embedding = {embedding}")
+                continue
+
+            try:
+                features = encoder_layer(embedding).numpy()
+            except:
+                print(f"WARNING: Failed to build features for {embedding}")
+                continue
+
+            features = np.squeeze(features) if tf.rank(features) == 3 else features
+
+            if not features.shape[0]:
+                print(f"UPDATE: Empty feature for embedding = {embedding}")
+                continue
+
+            #TODO: Load sequence summarization.
+            average_features = np.mean(features, axis=0)
+
+            if not average_features.shape:
+                print(f"UPDATE: Empty mean feature for embedding = {embedding}, features = {features}")
+                continue
+
+            #print(f"UPDATE: sequence ={sequence}, embedding = {embedding}, features={features}")
+            feature_matrix.append(average_features)
             prog_bar.update(i + 1)
 
-        feature_matrix = np.asarray(feature_matrix)
+        #print(f"UPDATE: feature shapes = {[x.shape for x in feature_matrix]}")
+        feature_matrix = np.stack(feature_matrix)
         return feature_matrix
 
     #TODO: Consider moving this and above to SequenceProcessor.
     def make_features_from_padded(self, token_sequences):
         '''
         Pad token sequences and produce features for them with the model. Padding is necessary for transformer encoders.
+
+        Outputs
+        A (N x feature_dims) numpy array. Each i-th row describes the i-th sequence with a <feature_dims>-dimensional vector.
         '''
 
-        pad_length = self.sequence_processor.max_anchor_length
-        token_sequences = pad_sequences(token_sequences, maxlen=pad_length, padding="post")
         #TODO: Optimize this, compare to numpy concatenation.
         feature_matrix = []
         sequence_count = token_sequences.shape[0]
-        print(f"UPDATE: Starting deployment tokenization of {sequence_count} sequences.")
+        print(f"UPDATE: Building features for {sequence_count} sequences.")
         prog_bar = Progbar(target=sequence_count)
 
         for i, token_sequence in enumerate(token_sequences):
             inputs = tf.cast(token_sequence, tf.int32)
             features = self.encoder(inputs)
-            print(f"UPDATE: inputs = {inputs}, features={features} \n")
             feature_matrix.append(features)
             prog_bar.update(i + 1)
 
-        feature_matrix = np.asarray(feature_matrix)
+        feature_matrix = np.stack(feature_matrix)
         return feature_matrix
 
     def make_feature_matrix(self, inputs_df):
@@ -92,14 +132,15 @@ class EncoderDeployer():
         '''
 
         # Preprocess the df.
-        preprocess_args = dict(df=inputs_df)
-        inputs_df = run_with_time(self.sequence_processor.preprocess_df, preprocess_args, "Deployment preprocessing.")
+        preprocess_args = dict(df=inputs_df, text_column=self.text_column)
+        inputs_df = run_with_time(drop_nan_text, preprocess_args, "Deployment preprocessing.")
 
         # Tokenize df.
-        tokenize_args = dict(document_df=inputs_df)
-        tokenized_df = run_with_time(self.sequence_processor.tokenize_document_df, tokenize_args, "Deployment tokenization")
+        tokenize_args = dict(sequence_processor=self.sequence_processor, document_df=inputs_df, text_column=self.text_column)
+        tokenized_df = run_with_time(tokenize_df_wrapper, tokenize_args, f"deployment {self.text_column} tokenization")
         token_sequences = tokenized_df["document_tokens"].values
-        feature_matrix = self.feature_method(token_sequences)
+        prepared_sequences = self.prepare_method(token_sequences)
+        feature_matrix = self.make_features_from_sequences(prepared_sequences)
         return feature_matrix
 
 
