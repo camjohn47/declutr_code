@@ -127,7 +127,10 @@ def drop_nan_text(df, text_column):
     total_docs = len(df)
     df.dropna(subset=[text_column], inplace=True)
     nan_docs = total_docs - len(df)
-    print(f'WARNING: {nan_docs} documents dropped with nan.')
+
+    if nan_docs:
+        print(f'WARNING: {nan_docs} documents dropped with nan.')
+
     return df
 
 #TODO: Add text column argument to tokenize_df() in SequenceProcessor so this can be removed.
