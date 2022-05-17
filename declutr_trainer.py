@@ -50,9 +50,10 @@ class DeClutrTrainer(SequenceProcessor):
     SUBPLOT_YAXIS = [dict(title_text='Frequency') for i in range(2)]
     LAYOUT_ARGS = dict(title_text="Document Size Distribution Before and After Filter", title_x=0.5)
     XAXIS_RANGE = [0, 5000]
+    models_dir = "models"
 
     def __init__(self, sequence_processor_args={}, code_parser_args={}, chunk_size=1000, epoch_count=3, train_split=.75,
-                 metrics=[], declutr_model="declutr_contrastive", encoder_model='lstm', save_format="tf", models_dir="models",
+                 metrics=[], declutr_model="declutr_contrastive", encoder_model='lstm', save_format="tf", models_dir=None,
                  tensorboard_dir="tensorboard_logs", save_training_data=True, visualize_tensors=False, sampling=1, text_column="code"):
 
         super().__init__(**sequence_processor_args)
@@ -90,7 +91,7 @@ class DeClutrTrainer(SequenceProcessor):
         self.visualize_tensors = visualize_tensors
 
         # Parser for finding scripts and building text dataframes from which sequences are made.
-        self.models_dir = models_dir
+        self.models_dir = models_dir if models_dir else self.models_dir
         self.code_parser_args.update(code_parser_args)
         self.code_parser = CodeParser(**self.code_parser_args)
         self.sampling = sampling
