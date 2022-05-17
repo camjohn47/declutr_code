@@ -40,7 +40,6 @@ class DeclutrExperiment(Experiment):
         self.experiment_id = self.build_experiment_id()
         self.experiment_directory = os.path.join(self.EXPERIMENTS_DIRECTORY, self.experiment_id)
         Path(self.experiment_directory).mkdir(parents=True, exist_ok=True)
-        self.reset_experiment_directory()
         self.build_config()
         self.models_dir = models_dir if models_dir else self.models_dir
 
