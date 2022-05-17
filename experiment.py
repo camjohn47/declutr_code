@@ -24,7 +24,7 @@ class Experiment(abc.ABC):
         pass
 
     @abstractmethod
-    def collect_results(self):
+    def collect_models_results(self):
         pass
 
     @abstractmethod
@@ -85,6 +85,11 @@ class Experiment(abc.ABC):
     def get_model_ids(self):
         model_ids = list(map(self.get_model_id, self.variable_domain))
         return model_ids
+
+    @staticmethod
+    def get_metrics(results, keyword):
+        loss_metrics = [col for col in results.columns if keyword in col]
+        return loss_metrics
 
 
 
