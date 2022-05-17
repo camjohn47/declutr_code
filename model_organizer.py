@@ -5,7 +5,7 @@ import re
 
 import pandas as pd
 
-class ModelAnalyser():
+class ModelOrganizer():
     def __init__(self, fit_log_base="fit_log.csv"):
         self.fit_log_base = fit_log_base
 
@@ -34,10 +34,10 @@ class ModelAnalyser():
         df = df[columns]
         return df
 
-    def join_fit_logs(self, model_dir):
+    def collect_results(self, model_dir):
         model_subdir_pattern = os.path.join(model_dir, "*")
-        model_subdirs = glob(model_subdir_pattern)
-        joined_fit_log = pd.DataFrame([])
+        model_subdirs = [path for path in glob(model_subdir_pattern) if os.path.isdir(path)]
+        collected_results = pd.DataFrame([])
 
         for model_subdir in model_subdirs:
             fit_log, fit_log_path = self.find_fit_log(model_subdir)
@@ -49,10 +49,10 @@ class ModelAnalyser():
             fit_log = self.increment_epochs(fit_log)
             chunk_index = self.get_fit_log_chunk(fit_log_path)
             fit_log["chunk"] = [chunk_index] * len(fit_log)
-            joined_fit_log = pd.concat([joined_fit_log, fit_log])
+            collected_results = pd.concat([collected_results, fit_log])
 
-        joined_fit_log = self.sort_by_chunk_epoch(joined_fit_log)
-        return joined_fit_log
+        collected_results = self.sort_by_chunk_epoch(collected_results)
+        return collected_results
 
     @staticmethod
     def increment_epochs(fit_df):
