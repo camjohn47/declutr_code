@@ -2,6 +2,7 @@ import re
 import time
 
 import os
+from ast import literal_eval
 
 import dill
 
@@ -13,6 +14,8 @@ from code_parser import CodeParser
 
 from sklearn.decomposition import PCA
 
+from pathlib import Path
+
 # NOTE: get_rank() will fail if not running eagerly.
 tf.executing_eagerly()
 
@@ -22,7 +25,26 @@ cast_tf_tokens = lambda tokens: tf.cast(tokens, dtype=tf.int32)
 # Get arg parse abbreviation of an arg by joining each word's first letter.
 get_argparse_name = lambda arg: "-" + "".join([word[0].lower() for word in arg.split("_")])
 
+def process_fig(fig, path):
+    fig.show()
+    print(f"UPDATE: Saving html to {path}")
+    fig.write_html(path)
+
+def set_path_to_main(path):
+    '''
+    Ensure that script is executed in declutr_code main.
+    '''
+
+    curr_dir = os.getcwd()
+    curr_dir_head, curr_dir_tail = os.path.split(curr_dir)
+
+    # Shift up in the working directory tree if not currently in main directory.
+    full_execution_path = os.path.join(curr_dir, path) if curr_dir_tail == "declutr_code" else os.path.join(curr_dir_head, path)
+
+    return full_execution_path
+
 TRAINING_DF_PATH = os.path.join("processed_data", "training_data.csv")
+TRAINING_DF_PATH = set_path_to_main(TRAINING_DF_PATH)
 
 def find_code_df_methods(code_df):
     '''
@@ -98,6 +120,15 @@ def mix_lists(lists):
     mixed_lists = [lists[i][j] for j in range(item_count) for i in range(list_count)]
     return mixed_lists
 
+def convert_tokens_to_int(document_df):
+    '''
+    Converts each string list of tokens into a list of ints. Ie "[1, 2, 3, ...]" -> [1, 2, 3, ...]. Needed when using
+    tokens in code df loaded from CSV.
+    '''
+
+    document_df["document_tokens"] = document_df.apply(lambda row: [int(token) for token in literal_eval(row["document_tokens"])], axis=1)
+    return document_df
+
 def get_code_df(sampling=.1, use_cached=True):
     '''
     Return a code-based dataframe with natural language description and script columns.
@@ -110,6 +141,7 @@ def get_code_df(sampling=.1, use_cached=True):
         code_df = code_parser.code_directory_to_df(os.getcwd())
 
     code_df = code_df.sample(frac=sampling)
+    code_df = convert_tokens_to_int(code_df)
     return code_df
 
 def reduce_matrix(matrix, target_dims):
@@ -149,3 +181,13 @@ def tokenize_df_wrapper(sequence_processor, document_df, text_column):
         document_df['document_tokens'] = sequence_processor.tokenizer.texts_to_sequences(documents)
 
     return document_df
+
+def make_path_directories(path):
+    '''
+    Robustly makes nested directories found in a path.
+    '''
+
+    dir_name = os.path.dirname(path)
+    Path(dir_name).mkdir(exist_ok=True, parents=True)
+
+

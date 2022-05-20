@@ -14,10 +14,9 @@ from itertools import chain
 
 from common_funcs import find_code_df_methods
 from visuals import make_histogram_comparison
+from ast import literal_eval
 
 import math
-
-import numpy as np
 
 class SequenceProcessor():
     '''
@@ -468,8 +467,7 @@ class SequenceProcessor():
         self.MASKED_INDEX = self.get_vocab_size()
         self.method_vocabulary.append(self.MASKED_INDEX)
         self.tokenizer.fit_on_texts(["MASKED_TOKEN"])
-        print(f'UPDATE: Sequence processor method vocab size: {len(self.method_vocabulary)}, '
-              f'masked index = {self.MASKED_INDEX}.')
+        print(f'UPDATE: Sequence processor method vocab size: {len(self.method_vocabulary)}, masked index = {self.MASKED_INDEX}.')
 
     def build_mmm_inputs(self, anchor_sequence):
         '''
