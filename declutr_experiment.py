@@ -1,5 +1,5 @@
 from experiment import Experiment
-from common_funcs import get_argparse_name
+from common_funcs import get_argparse_name, mix_lists
 
 import subprocess
 
@@ -42,10 +42,7 @@ class DeclutrExperiment(Experiment):
         Path(self.experiment_directory).mkdir(parents=True, exist_ok=True)
         self.build_config()
         self.models_dir = models_dir if models_dir else self.models_dir
-
-    def build_experiment_id(self):
-        experiment_id = f"{self.variable_arg}={'_'.join(self.variable_domain)}"
-        return experiment_id
+        self.post_query_script = self.get_full_execution_path("codesearch_evaluation.py")
 
     def reset_experiment_directory(self):
         if os.path.exists(self.experiment_directory):
@@ -64,13 +61,9 @@ class DeclutrExperiment(Experiment):
     def get_config(self):
         return self.config
 
-    def model_directory_from_id(self, model_id):
-        model_dir = os.path.join(self.models_dir, model_id)
-        return model_dir
-
     def collect_models_results(self):
         model_ids = self.get_model_ids()
-        model_directories = list(map(self.model_directory_from_id, model_ids))
+        model_directories = self.get_model_directories()
         model_id_to_value = self.get_model_id_to_variable_val()
         organizer = ModelOrganizer()
         models_results = DataFrame([])
@@ -107,14 +100,12 @@ class DeclutrExperiment(Experiment):
         loss_fig.update_xaxes(title="Chunks of 1000 Batches")
         return loss_fig
 
-    def build_figs(self, results):
+    def build_figs(self, results, metric):
         '''
         Build and process Plotly line figure HTML's for loss and accuracy metrics.
         '''
 
-        loss_metrics = self.get_metrics(results, "loss")
-        accuracy_metrics = self.get_metrics(results, "accuracy")
-        metrics = loss_metrics + accuracy_metrics
+        metrics = self.get_metrics(results, metric)
 
         for metric in metrics:
             loss_fig = line(results, x="chunk", y=metric, color=self.variable_arg)
@@ -141,12 +132,21 @@ class DeclutrExperiment(Experiment):
         return model_id
 
     def add_tensorboard_arg(self, call_args):
+        '''
+        Add experiment's tensorboard directory to the call args. This ensures tensorboard visuals for different model runs
+        will be available in same directory.
+        '''
+
         model_id = self.get_model_id_from_call_args(call_args)
         tensorboard_dir = self.build_tensorboard_directory(model_id)
         call_args += [self.TENSORBOARD_ARG, tensorboard_dir]
         return call_args
 
     def run(self):
+        '''
+        Train different DeClutr models over the dependent variable values\domain.
+        '''
+
         self.reset_experiment_directory()
 
         for variable_value in self.variable_domain:
@@ -156,6 +156,24 @@ class DeclutrExperiment(Experiment):
             print(f"\nNEW EXPERIMENT: Running Declutr experiment with {self.variable_arg} = {variable_value}, "
                     f"call args = {call_args}.")
             subprocess.run(call_args)
+
+    def run_post_querying(self):
+        '''
+        AFTER RUNNING ABOVE EXPERIMENT: Use different DeClutr models for code retrieval task.
+        '''
+
+        for variable_value in self.variable_domain:
+            model_id = self.get_model_id(variable_value)
+            query_script_args = ["-qmi", "-smi"]
+
+            #TODO: Integrate mixed query\script encoding experiments.
+            query_script_values = [model_id, model_id]
+            call_args = mix_lists([query_script_args, query_script_values])
+            call_args = ["python", self.post_query_script] + call_args
+            print(f"UPDATE: Running post-querying experiment with {call_args}.")
+            subprocess.call(call_args)
+
+
 
 
 
