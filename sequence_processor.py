@@ -160,7 +160,7 @@ class SequenceProcessor():
     def fit_tokenizer_in_chunks(self, document_df, text_column, chunk_size=1.0e3):
         document_count = len(document_df)
         chunk_count = math.ceil(document_count / chunk_size)
-        print(f'UPDATE: Tokenization on document chunks in progress.')
+        print(f'UPDATE: Tokenization on {text_column} chunks in progress.')
         progress_bar = Progbar(target=chunk_count, stateful_metrics=["document_count", "vocabulary_size"])
         document_count = 0
 
