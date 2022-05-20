@@ -10,14 +10,18 @@ import re
 #TODO: Experiment abstract class that can be used for NEL, NER, CodeSearch, ... experiments.
 class Experiment(abc.ABC):
     EXPERIMENTS_DIRECTORY = "experiments"
+    MODELS_DIR = "models"
 
-    def __int__(self, variable_arg, variable_domain, constant_arg_vals, script, constant_args, id_template="VARIABLE=VALUE"):
+    def __int__(self, variable_arg, variable_domain, constant_arg_vals, script, constant_args, models_dir=None, id_template="VARIABLE=VALUE"):
         self.variable_arg = variable_arg
         self.variable_domain = variable_domain
         self.constant_arg_vals = constant_arg_vals
         self.script = script
         self.id_template = id_template
         self.constant_args = constant_args
+        self.models_dir = models_dir if models_dir else self.MODELS_DIR
+
+        #TODO: Config building and saving in experiment directory.
 
     @abstractmethod
     def run(self):
@@ -31,15 +35,26 @@ class Experiment(abc.ABC):
     def get_config(self):
         pass
 
-    @abstractmethod
     def build_experiment_id(self):
-        pass
+        experiment_id = f"{self.variable_arg}={'_vs_'.join(self.variable_domain)}"
+        constant_ids = [f"constant_{arg}={val}" for arg, val in self.constant_arg_vals.items()]
+        experiment_id = "_".join([experiment_id, *constant_ids])
+        return experiment_id
 
     # Methods used for generating subprocess arguments of different experiment trials/values.
     def get_model_id(self, variable_value):
         model_id = re.sub("VARIABLE", self.variable_arg, self.id_template)
         model_id = re.sub("VALUE", variable_value, model_id)
         return model_id
+
+    def model_directory_from_id(self, model_id):
+        model_dir = os.path.join(self.models_dir, model_id)
+        return model_dir
+
+    def get_model_directories(self):
+        model_ids = self.get_model_ids()
+        model_directories = list(map(self.model_directory_from_id, model_ids))
+        return model_directories
 
     def get_argparse_constants(self):
         constant_args = list(self.constant_arg_vals.keys())
@@ -90,6 +105,24 @@ class Experiment(abc.ABC):
     def get_metrics(results, keyword):
         loss_metrics = [col for col in results.columns if keyword in col]
         return loss_metrics
+
+    @staticmethod
+    def get_full_execution_path(execution_script):
+        '''
+        Ensure that script is executed in declutr_code main.
+        '''
+
+        curr_dir = os.getcwd()
+        curr_dir_head, curr_dir_tail = os.path.split(curr_dir)
+
+        if curr_dir_tail == "declutr_code":
+            full_execution_path = os.path.join(curr_dir, execution_script)
+        # Shift up in the working directory tree if not currently in main directory.
+        else:
+            full_execution_path = os.path.join(curr_dir_head, execution_script)
+
+        return full_execution_path
+
 
 
 
