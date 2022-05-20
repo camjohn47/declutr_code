@@ -3,6 +3,8 @@ from encoder_deployer import EncoderDeployer
 from scipy.spatial import distance_matrix
 import numpy as np
 
+from tensorflow.keras.utils import Progbar
+
 from common_funcs import reduce_matrix
 
 import pandas as pd
@@ -76,6 +78,10 @@ class QueryEncoderRetriever():
         query_encodings, script_encodings = self.make_encodings_compatibile(query_encodings, script_encodings)
         results_df = []
 
+        query_count = len(queries)
+        print(f"PROGRESS: Retrieving scripts for {query_count} document strings.")
+        prog_bar = Progbar(target=query_count, unit_name="retrieved_document")
+
         for i, query in enumerate(queries):
             if i >= len(query_encodings):
                 break
@@ -85,6 +91,7 @@ class QueryEncoderRetriever():
             optimal_script = scripts[optimal_index]
             results_row = dict(query=query, matched_script_index=optimal_index, matched_script=optimal_script, matched_distance=optimal_distance)
             results_df.append(results_row)
+            prog_bar.update(i + 1)
 
         results_df = pd.DataFrame(results_df)
         return results_df
