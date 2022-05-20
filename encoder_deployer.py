@@ -8,7 +8,7 @@ import numpy as np
 
 from sequence_models import DeClutrContrastive, TransformerEncoder, RNNEncoder
 
-from common_funcs import get_sequence_processor, run_with_time, cast_tf_tokens, tokenize_df_wrapper, drop_nan_text
+from common_funcs import get_sequence_processor, run_with_time, cast_tf_tokens, tokenize_df_wrapper, drop_nan_text, set_path_to_main
 
 import os
 
@@ -23,11 +23,11 @@ class EncoderDeployer():
         self.model_id = model_id
         self.models_dir = models_dir
         self.model_dir = os.path.join(self.models_dir, self.model_id)
+        self.model_dir = set_path_to_main(self.model_dir)
         self.initialize_encoder(encoder_model)
         self.embedding = self.encoder.layers[0]
         print(f"UPDATE: Embedding layer config: {self.embedding.get_config()}")
         self.sequence_processor = get_sequence_processor(self.model_dir)
-        vocab = self.sequence_processor.tokenizer.word_index
 
         # Default output label prefix of each feature is model_id.
         self.output_label = output_label if output_label else model_id
@@ -58,8 +58,8 @@ class EncoderDeployer():
 
         feature_matrix = []
         sequence_count = token_sequences.shape[0]
-        print(f"UPDATE: Starting deployment tokenization of {sequence_count} sequences.")
-        prog_bar = Progbar(target=sequence_count)
+        print(f"UPDATE: Starting deployment {sequence_count} sequences.")
+        prog_bar = Progbar(target=sequence_count, unit_name="sequence")
         embedding_layer = self.encoder.layers[0]
         encoder_layer = self.encoder.layers[-1]
 
@@ -94,11 +94,9 @@ class EncoderDeployer():
                 print(f"UPDATE: Empty mean feature for embedding = {embedding}, features = {features}")
                 continue
 
-            #print(f"UPDATE: sequence ={sequence}, embedding = {embedding}, features={features}")
             feature_matrix.append(average_features)
             prog_bar.update(i + 1)
 
-        #print(f"UPDATE: feature shapes = {[x.shape for x in feature_matrix]}")
         feature_matrix = np.stack(feature_matrix)
         return feature_matrix
 
