@@ -30,7 +30,7 @@ def get_arg_parser():
                             help="Column in code dataframe whose text will be analyzed. ")
     arg_parser.add_argument("-ed", "--embedding_dimensions", required=False, default=100, type=int,
                             help="Length of each embedding vector fed to encoder layer.")
-    arg_parser.add_argument("-td", "--tensorboard_dir", required=False,
+    arg_parser.add_argument("-td", "--tensorboard_dir", required=False, default=DeClutrTrainer.tensorboard_dir,
                             help="Directory where tf model fit/validation logs are saved for later analysis.")
     return arg_parser
 
