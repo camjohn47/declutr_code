@@ -51,6 +51,7 @@ class DeClutrTrainer(SequenceProcessor):
     LAYOUT_ARGS = dict(title_text="Document Size Distribution Before and After Filter", title_x=0.5)
     XAXIS_RANGE = [0, 5000]
     models_dir = "models"
+    tensorboard_dir = "tensorboard_logs"
 
     def __init__(self, sequence_processor_args={}, code_parser_args={}, chunk_size=1000, epoch_count=3, train_split=.75,
                  metrics=[], declutr_model="declutr_contrastive", encoder_model='lstm', save_format="tf", models_dir=None,
@@ -83,7 +84,7 @@ class DeClutrTrainer(SequenceProcessor):
             self.pad_sequences = True
 
         self.save_format = save_format
-        self.tensorboard_dir = tensorboard_dir
+        self.tensorboard_dir = tensorboard_dir if tensorboard_dir else self.tensorboard_dir
         print(f"UPDATE: Setting Trainer's TensorBoard directory to {self.tensorboard_dir}.")
         self.save_training_data = save_training_data
 
@@ -104,7 +105,7 @@ class DeClutrTrainer(SequenceProcessor):
         kwargs = dict(script_directory=code_directory)
         code_df = run_with_time(func=func, kwargs=kwargs, name="CodeParser df building")
         code_df = code_df.sample(frac=self.sampling)
-        print(f'UPDATE: DeClutrTrainer has built code df with sampling={self.sampling}. Info shown below.')
+        print(f'UPDATE: DeClutrTrainer has built a code df with sampling={self.sampling}. Info shown below.')
         code_df.info()
         return code_df
 
@@ -128,6 +129,12 @@ class DeClutrTrainer(SequenceProcessor):
         code_df = self.build_code_df(code_directory)
         code_df = drop_nan_text(code_df, text_column=self.text_column)
         self.fit_tokenizer_in_chunks(code_df, text_column=self.text_column)
+
+        #TODO: Re-implement full sampling requirement after testing.
+        if self.sampling == 1:
+            print(f"UPDATE: Saving tokenizer because text is fully sampled.")
+            self.cache_tokenizer(self.text_column)
+
         declutr_model = self.build_declutr_model(code_df=code_df, declutr_args=declutr_args)
         self.make_programming_language_hist(code_df)
         self.train_model(declutr_model=declutr_model, document_df=code_df)
@@ -238,8 +245,6 @@ class DeClutrTrainer(SequenceProcessor):
         # different chunks and epochs.
         log_path = os.path.join(self.log_dir, 'fit_log.csv')
         csv_logger = CSVLogger(filename=log_path, append=True)
-
-        #TODO: Class constants for these.
         tensorboard = TensorBoard(log_dir=self.tensorboard_dir, write_images=True, update_freq='batch', embeddings_freq=1,
                                   histogram_freq=1000)
         checkpoint = ModelCheckpoint(filepath=os.path.join(self.model_dir, 'checkpoint'))
