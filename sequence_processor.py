@@ -1,6 +1,10 @@
 import sys
+import os
 
-from tensorflow.keras.preprocessing.text import Tokenizer
+import json
+import pickle
+
+from tensorflow.keras.preprocessing.text import Tokenizer, tokenizer_from_json
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 import tensorflow as tf
 from tensorflow.data import Dataset
@@ -12,9 +16,7 @@ import random
 from functools import partial
 from itertools import chain
 
-from common_funcs import find_code_df_methods
-from visuals import make_histogram_comparison
-from ast import literal_eval
+from common_funcs import find_code_df_methods, make_path_directories
 
 import math
 
@@ -27,7 +29,8 @@ class SequenceProcessor():
     The main role of this class is to randomly sample documents from a collection of documents and
     sample subsets of these documents to build sequence batches. The sequences are tokenized and prepared
     for Tensorflow models. These text sequence batches include binary labels describing the positive
-    or negative relationship between them and the anchor sequence.
+    or negative relationship between them and the anchor sequence. Declutr's learning task is to find the most similar
+    sequence = positive in the batch to a reference anchor sequence.
 
     Default beta parameters taken from the original DeClutr paper concentration1 = alpha, 0 = beta.
     '''
@@ -35,10 +38,13 @@ class SequenceProcessor():
     anchor_args = dict(concentration1=4, concentration0=2)
     positive_sampling_args = dict(concentration1=2, concentration0=4)
 
+    # Where to save tokenizers and search for pre-trained ones.
+    TOKENIZER_DIR = "tokenizers"
+
     def __init__(self, loss_objective="declutr_contrastive", tokenizer_args={}, min_anchor_length=32, max_anchor_length=64, anchor_args={},
                  positive_sampling_args={}, anchors_per_document=1, num_positive_samples=1, documents_per_batch=32,
-                 chunk_size=int(1.0e3), max_document_length=512, pretrained_tokenizer=False, tokenizer_type=None,
-                 tokenizer=None, sample_documents_with_replacement=False, pad_sequences=False, mmm_sample=.1):
+                 chunk_size=int(1.0e3), max_document_length=512, use_pretrained_tokenizer=False, tokenizer_type=None,
+                 pretrained_tokenizer=None, sample_documents_with_replacement=False, pad_sequences=False, mmm_sample=.1):
         self.min_anchor_length = min_anchor_length
         self.max_anchor_length = max_anchor_length
 
@@ -61,9 +67,10 @@ class SequenceProcessor():
         self.batch_size = 2 * self.documents_per_batch * self.anchors_per_document - 1
 
         # Initialize tokenizer depending on whether a pre-trained one is used.
-        self.pretrained_tokenizer = pretrained_tokenizer
+        self.use_pretrained_tokenizer = use_pretrained_tokenizer
         self.tokenizer_args = tokenizer_args
-        self.tokenizer = self.initialize_tokenizer(tokenizer, tokenizer_type)
+        self.tokenizer = None
+        self.pretrained_tokenizer = pretrained_tokenizer
         self.tokenizer_type = tokenizer_type
         self.sample_documents_with_replacement = sample_documents_with_replacement
         self.pad_sequences = pad_sequences
@@ -88,17 +95,17 @@ class SequenceProcessor():
         self.map_sequence_to_doc_ind = lambda i: math.floor(i / (2 * self.anchors_per_document * self.num_positive_samples))
         self.map_doc_to_contrasted_ind = lambda i: self.map_sequence_to_doc_ind(i)
 
-    def initialize_tokenizer(self, tokenizer, tokenizer_type):
+    def initialize_tokenizer(self):
         # If pre-trained tokenizer is specified, the type and tokenizer itself must be provided.
-        if self.pretrained_tokenizer:
-            if not tokenizer_type:
+        if self.use_pretrained_tokenizer:
+            if not self.tokenizer_type:
                 print(f'ERROR: Pretrained tokenizer requested but type unspecified! ')
                 sys.exit(1)
-            elif not tokenizer:
+            elif not self.pretrained_tokenizer:
                 print(f'ERROR: Pretrained tokenizer requested but no tokenizer provided! ')
                 sys.exit(1)
 
-            tokenizer = tokenizer
+            tokenizer = self.pretrained_tokenizer
         # Otherwise, build a new Keras tokenizer.
         else:
             tokenizer = Tokenizer(**self.tokenizer_args)
@@ -146,10 +153,50 @@ class SequenceProcessor():
             df_chunk = df.take(chunk_inds)
             yield df_chunk
 
+    def get_tokenizer_path(self, text_column):
+        tokenizer_path = os.path.join(self.TOKENIZER_DIR, f"{text_column}_tokenizer.json")
+        return tokenizer_path
+
+    def search_for_tokenizer(self, text_column):
+        tokenizer_path = self.get_tokenizer_path(text_column)
+        tokenizer = None
+
+        if os.path.exists(tokenizer_path):
+            print(f"UPDATE: Found tokenizer path {tokenizer_path}.")
+            with open(tokenizer_path, "r") as file:
+                try:
+                    tokenizer_str = file.read()
+                    tokenizer = tokenizer_from_json(tokenizer_str)
+                except:
+                    print(f"WARNING: Failed to load JSON Keras tokenizer found in {tokenizer_path}.")
+
+        if not tokenizer:
+            tokenizer = self.initialize_tokenizer()
+
+        return tokenizer
+
+    def search_for_tokenizer_pickle(self, text_column):
+        tokenizer_path = self.get_tokenizer_path(text_column).replace(".json", ".pickle")
+        tokenizer = None
+
+        if os.path.exists(tokenizer_path):
+            print(f"UPDATE: Found tokenizer path {tokenizer_path}.")
+            with open(tokenizer_path, "rb") as file:
+                try:
+                    tokenizer_str = file.read()
+                    tokenizer = pickle.loads(tokenizer_str)
+                except:
+                    print(f"WARNING: Failed to load JSON Keras tokenizer found in {tokenizer_path}.")
+
+        if not tokenizer:
+            tokenizer = self.initialize_tokenizer()
+
+        return tokenizer
+
     def fit_tokenizer_on_documents(self, document_df, text_column):
         documents = document_df[text_column].values
 
-        if self.pretrained_tokenizer:
+        if self.use_pretrained_tokenizer:
             pass
         else:
             self.tokenizer.fit_on_texts(documents)
@@ -157,6 +204,9 @@ class SequenceProcessor():
         return document_df
 
     def fit_tokenizer_in_chunks(self, document_df, text_column, chunk_size=1.0e3):
+        if not self.tokenizer:
+            self.tokenizer = self.search_for_tokenizer_pickle(text_column)
+
         document_count = len(document_df)
         chunk_count = math.ceil(document_count / chunk_size)
         print(f'UPDATE: Tokenization on {text_column} chunks in progress.')
@@ -328,7 +378,7 @@ class SequenceProcessor():
 
         documents = document_df[text_column].values
 
-        if self.pretrained_tokenizer:
+        if self.use_pretrained_tokenizer:
             documents = documents.tolist()
             documents_tokenized = list(map(self.tokenizer.tokenize, documents))
             document_df['document_tokens'] = list(map(self.tokenizer.convert_tokens_to_ids, documents_tokenized))
@@ -351,7 +401,7 @@ class SequenceProcessor():
         Pad sequences for pre-trained encoders or if specified with processor instance.
         '''
 
-        if self.pretrained_tokenizer or self.pad_sequences:
+        if self.use_pretrained_tokenizer or self.pad_sequences:
             anchor, input_sequences = self.pad_anchor_and_contrasted(anchor, input_sequences)
 
         return anchor, input_sequences
@@ -530,7 +580,7 @@ class SequenceProcessor():
         Return tokenizer's vocabulary size.
         '''
         
-        vocab = self.tokenizer.index_word if not self.pretrained_tokenizer else self.tokenizer.get_vocab()
+        vocab = self.tokenizer.index_word if not self.use_pretrained_tokenizer else self.tokenizer.get_vocab()
         vocab_size = len(vocab) 
         return vocab_size
 
@@ -543,6 +593,22 @@ class SequenceProcessor():
 
     def texts_to_sequences(self, documents):
         return self.tokenizer.texts_to_sequences(documents)
+
+    def cache_tokenizer(self, text_column):
+        tokenizer_path = self.get_tokenizer_path(text_column)
+        make_path_directories(tokenizer_path)
+        json_tokenizer = self.tokenizer.to_json()
+
+        with open(tokenizer_path, "w") as file:
+            print(f"UPDATE: Caching tokenizer to {tokenizer_path}.")
+            file.write(json_tokenizer)
+
+        pickle_path = tokenizer_path.replace(".json", ".pickle")
+        pickle_obj = pickle.dumps(self.tokenizer)
+
+        with open(pickle_path, "wb") as file:
+            print(f"UPDATE: Caching pickled tokenizer to {pickle_path}.")
+            file.write(pickle_obj)
 
 
 
