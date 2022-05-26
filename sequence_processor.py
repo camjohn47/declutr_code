@@ -10,6 +10,7 @@ import tensorflow as tf
 from tensorflow.data import Dataset
 from tensorflow_probability.python.distributions import Beta, Sample
 from tensorflow.keras.utils import Progbar
+from tensorflow import type_spec_from_value
 
 import random
 
@@ -41,10 +42,13 @@ class SequenceProcessor():
     # Where to save tokenizers and search for pre-trained ones.
     TOKENIZER_DIR = "tokenizers"
 
+    ANIMATION_INPUT_KEYS = ["document_texts", "anchor_index", "anchor_start", "anchor_end"]
+
     def __init__(self, loss_objective="declutr_contrastive", tokenizer_args={}, min_anchor_length=32, max_anchor_length=64, anchor_args={},
                  positive_sampling_args={}, anchors_per_document=1, num_positive_samples=1, documents_per_batch=32,
                  chunk_size=int(1.0e3), max_document_length=512, use_pretrained_tokenizer=False, tokenizer_type=None,
-                 pretrained_tokenizer=None, sample_documents_with_replacement=False, pad_sequences=False, mmm_sample=.1):
+                 pretrained_tokenizer=None, sample_documents_with_replacement=False, pad_sequences=False, mmm_sample=.1,
+                 animate_batch_prep=False):
         self.min_anchor_length = min_anchor_length
         self.max_anchor_length = max_anchor_length
 
@@ -94,6 +98,8 @@ class SequenceProcessor():
         # Lambdas for document -> DeClutr sequence index conversion.
         self.map_sequence_to_doc_ind = lambda i: math.floor(i / (2 * self.anchors_per_document * self.num_positive_samples))
         self.map_doc_to_contrasted_ind = lambda i: self.map_sequence_to_doc_ind(i)
+
+        self.animate_batch_prep = animate_batch_prep
 
     def initialize_tokenizer(self):
         # If pre-trained tokenizer is specified, the type and tokenizer itself must be provided.
@@ -259,6 +265,11 @@ class SequenceProcessor():
         positive_domain = range(positive_start, positive_start + positive_length)
         positive_sequence = [document_tokens[i] for i in positive_domain]
         positive_sequence = tf.cast(positive_sequence, tf.int32)
+
+        if self.animate_batch_prep:
+            self.anchor_start = anchor_start
+            self.anchor_end = anchor_end
+
         return positive_sequence
 
     def add_document_size_column(self, document_df):
@@ -456,13 +467,23 @@ class SequenceProcessor():
             # Build input sequences and a label sequence describing their classes as generator output.
             tokens_chunk = document_chunk['document_tokens'].values
             contrastive_inputs = self.build_batch_input_sequences(tokens_chunk)
-            contrastive_labels, positive_document_ind = self.build_contrastive_label_sequence(contrastive_inputs)
-            anchor, contrastive_inputs = self.extract_anchor_from_inputs(contrastive_inputs, positive_document_ind)
+            contrastive_labels, anchor_index = self.build_contrastive_label_sequence(contrastive_inputs)
+            anchor, contrastive_inputs = self.extract_anchor_from_inputs(contrastive_inputs, anchor_index)
             anchor, contrastive_inputs = self.determine_padding(anchor, contrastive_inputs)
             anchor, contrastive_inputs = self.convert_anchor_and_inputs(anchor, contrastive_inputs)
             batch_labels = self.process_batch_labels(contrastive_labels)
             input_sequences = dict(anchor_sequence=anchor, contrasted_sequences=contrastive_inputs)
-            input_sequences = self.add_columns(input_sequences, document_chunk, add_columns, positive_document_ind)
+            input_sequences = self.add_columns(input_sequences, document_chunk, add_columns, anchor_index)
+
+            # Provide intermediate variables\steps of the process for making visuals.
+            if self.animate_batch_prep:
+                document_texts = document_chunk["docstring"].values
+                print(f"UPDATE: document texts = {document_texts}")
+                input_sequences["document_texts"] = document_texts
+                input_sequences["anchor_index"] = anchor_index
+                input_sequences["anchor_start"] = self.anchor_start
+                input_sequences["anchor_end"] = self.anchor_end
+
             yield input_sequences, batch_labels
 
     def yield_declutr_mmm_batches(self, document_df):
@@ -552,7 +573,14 @@ class SequenceProcessor():
         input_sample = next(self.yield_declutr_contrastive_batches(document_df))[0]
         contrasted_sample = input_sample['contrasted_sequences']
         input_spec = dict(anchor_sequence=tf.TensorSpec(shape=(None,), dtype=tf.int32),
-                          contrasted_sequences=tf.type_spec_from_value(contrasted_sample))
+                          contrasted_sequences=type_spec_from_value(contrasted_sample))
+
+        if self.animate_batch_prep:
+            for animation_key in self.ANIMATION_INPUT_KEYS:
+                print(f"UPDATE: Adding animation key {animation_key} spec. ")
+                animation_sample = input_sample[animation_key]
+                input_spec[animation_key] = type_spec_from_value(animation_sample)
+
         output_signature = (input_spec, tf.TensorSpec(shape=(1, self.batch_size), dtype=tf.int32))
         gen = partial(self.yield_declutr_contrastive_batches, document_df=document_df)
         dataset = Dataset.from_generator(gen, output_signature=output_signature)
