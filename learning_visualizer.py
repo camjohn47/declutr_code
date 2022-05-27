@@ -1,5 +1,6 @@
 import ast
 import sys
+import os
 
 from sequence_processor import SequenceProcessor
 from tensorflow.keras.preprocessing.sequence import pad_sequences
@@ -328,7 +329,6 @@ class LearningVisualizer:
         subplot_params = self.build_process_subplot_params(document_texts, rows=rows)
         fig = make_subplots(rows=rows, cols=columns, **subplot_params, shared_xaxes=False, shared_yaxes=False)
         fig.update_scenes(xaxis=dict(visible=False), yaxis=dict(visible=False), zaxis=dict(visible=False))
-        fig.show()
         fig = self.add_document_texts_to_fig(fig, document_texts)
         document_inds = range(columns)
         fig = self.add_anchor_buttons(fig, document_inds)
@@ -338,13 +338,14 @@ class LearningVisualizer:
         fig.update_annotations(font_size=24)
         return fig
 
-    def animate_batch_processing(self, batch):
+    def get_processing_figure(self, batch):
         sequences, labels = batch
         document_texts = sequences["document_texts"].numpy().tolist()
         document_selection_fig = self.build_document_selection_fig(document_texts)
-        process_fig(document_selection_fig, "processing_animation.html")
+        document_count = len(document_texts)
+        return document_selection_fig, document_count
 
-    def build_processing_visuals(self):
+    def generate_processing_visuals(self):
         '''
         Build, show, and save Plotly HTML's illustrating first steps of DeClutr processing. A visual is displayed for
         each batch in the dataset processed from <code_df>.
@@ -361,7 +362,13 @@ class LearningVisualizer:
                     print(f"EXIT: Stopping visuals as requested. ")
                     break
 
-            self.animate_batch_processing(batch)
+            processing_fig, document_count = self.get_processing_figure(batch)
+            yield processing_fig, document_count
+
+    def build_processing_visuals(self):
+        for i, batch_processing_fig in enumerate(self.generate_processing_visuals()):
+            fig_path = os.path.join("animations", f"batch_processing_visual_{i + 1}.html")
+            process_fig(batch_processing_fig, fig_path)
 
 if __name__ == "__main__":
     # Simple script for visualizing the DeClutr code learning task.
@@ -371,3 +378,4 @@ if __name__ == "__main__":
     visualizer.build_learning_visuals()
     visualizer.build_processing_visuals()
 
+#%%
