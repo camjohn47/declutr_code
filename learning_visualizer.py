@@ -6,7 +6,7 @@ from sequence_processor import SequenceProcessor
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from common_funcs import process_fig, get_code_df, drop_nan_text
 
-from plotly.graph_objects import Scatter3d, Figure
+from plotly.graph_objects import Scatter3d, Figure, Scatter
 from plotly.subplots import make_subplots
 import numpy as np
 from math import ceil, floor
@@ -122,6 +122,18 @@ class LearningVisualizer:
         for i, chunk in enumerate(anchor_chunks):
             line_text, line_z = chunk
             anchor_trace = Scatter3d(x=[center_x], y=[0], z=[line_z], text=line_text, name="anchor text", mode="text",
+                                     textfont=dict(color=self.ANCHOR_COLOR, size=self.TEXT_SIZE), textposition="top center")
+            anchor_traces.append(anchor_trace)
+
+        return anchor_traces
+
+    def build_anchor_process_traces(self, anchor_text):
+        anchor_traces = []
+        anchor_chunks = self.get_text_chunks(anchor_text)
+
+        for i, chunk in enumerate(anchor_chunks):
+            line_text, y = chunk
+            anchor_trace = Scatter(x=[0], y=[y], text=line_text, name="anchor text", mode="text",
                                      textfont=dict(color=self.ANCHOR_COLOR, size=self.TEXT_SIZE), textposition="top center")
             anchor_traces.append(anchor_trace)
 
@@ -306,8 +318,11 @@ class LearningVisualizer:
             process_fig(subplots_fig, fig_name)
 
     def add_document_texts_to_fig(self, fig, document_texts):
+        self.document_texts = []
+
         for document_index, document_text in enumerate(document_texts):
             document_text = document_text.decode('utf-8')
+            self.document_texts.append(document_text)
             traces = self.split_contrasted_trace(document_text, document_index)
             subplot_rows = [1] * len(traces)
             subplot_cols = [document_index + 1] * len(traces)
@@ -336,6 +351,14 @@ class LearningVisualizer:
         #TODO: Add buttons to choose anchor document.
         fig.update_layout(title_text=self.DOC_SELECTION_TITLE_TEXT, title_x=0.5, title_font=dict(size=32), showlegend=False)
         fig.update_annotations(font_size=24)
+        return fig
+
+    def build_anchor_document_fig(self, anchor_doc, anchor_doc_index):
+        fig = Figure()
+        anchor_traces = self.build_anchor_process_traces(anchor_doc)
+        fig.add_traces(anchor_traces)
+        fig.update_layout(title=f"You've chosen document {anchor_doc_index}!", title_x=0.5, title_font=dict(size=32),
+                          xaxis=dict(visible=False), yaxis=dict(visible=False), height=1800, showlegend=False)
         return fig
 
     def get_processing_figure(self, batch):
