@@ -3,16 +3,18 @@ import sys
 
 from sequence_processor import SequenceProcessor
 from tensorflow.keras.preprocessing.sequence import pad_sequences
-from common_funcs import process_fig, get_code_df
+from common_funcs import process_fig, get_code_df, drop_nan_text
 
 from plotly.graph_objects import Scatter3d, Figure
 from plotly.subplots import make_subplots
 import numpy as np
 from math import ceil, floor
 
+from functools import partial
+
 class LearningVisualizer:
     ANCHOR_COLOR = "red"
-    COLORS = ["blue", "black", "yellow", "green", "grey", "pink", "purple", "orange"]
+    COLORS = ["blue", "black", "green", "grey", "pink", "purple", "orange", "gold", "cyan"]
     NUM_COLORS = len(COLORS)
     X_DELTA = 200
     Z_DELTA = .05
@@ -23,17 +25,24 @@ class LearningVisualizer:
     PAPER_Y_DELTA = 1 / 2
     ANCHOR_COL = ceil(SUBPLOTS_PER_ROW / 2) + 1
     COLUMN_WIDTH = 3000
-    seq_processor_args = dict(documents_per_batch=4)
+
+    # Title of interactive document selection fig.
+    DOC_SELECTION_TITLE_TEXT = "Declutr Step 1: Choose your anchor document!"
+
+    #NOTE: Animate batch prep should be set to True for full functionality!
+    seq_processor_args = dict(documents_per_batch=4, animate_batch_prep=True)
 
     def __init__(self, seq_processor=None, seq_processor_args={}, words_per_line=10, num_visuals_at_a_time=1):
         self.seq_processor_args.update(seq_processor_args)
         self.seq_processor = seq_processor if seq_processor else SequenceProcessor(**self.seq_processor_args)
         self.words_per_line = words_per_line
         self.num_visuals_at_a_time = num_visuals_at_a_time
+        self.ask_user_about_stop = lambda batch_index: batch_index % self.num_visuals_at_a_time == 0 and batch_index != 0
         self.is_anchor_col = lambda col: col == self.ANCHOR_COL
         self.get_code_segment_col = lambda col: col if col < self.ANCHOR_COL else col + 1
         self.get_column_title = lambda col: f"code segment {self.get_code_segment_col(col)}" if not self.is_anchor_col(col)  \
                                         else "anchor code segment"
+        self.get_document_title = lambda col: f"document {col + 1}"
         self.build_subplot_parameters()
         self.contrasted_trace_coordinates = dict()
         self.contrasted_count = self.seq_processor.batch_size
@@ -45,6 +54,14 @@ class LearningVisualizer:
         self.subplot_specs = [[dict(type="scene") for col in range(self.SUBPLOTS_PER_ROW + 1)] for row in range(self.row_count + 1)]
         self.column_widths = [self.COLUMN_WIDTH for i in range(self.SUBPLOTS_PER_ROW + 1)]
         self.column_titles = [self.get_column_title(col + 1) for col in range(self.SUBPLOTS_PER_ROW + 1)]
+
+    def build_process_subplot_params(self, document_texts, rows):
+        document_count = len(document_texts)
+        params = {}
+        params["specs"] = [[dict(type="scene") for col in range(document_count)] for row in range(rows)]
+        params["column_widths"] = [self.COLUMN_WIDTH for i in range(document_count)]
+        params["column_titles"] = [self.get_document_title(col + 1) for col in range(document_count)]
+        return params
 
     @staticmethod
     def pad_input_sequences(contrasted_id_seqs):
@@ -128,6 +145,7 @@ class LearningVisualizer:
             trace_coordinates = dict(x=x, y=y, z=line_z)
             traces_coordinates.append(trace_coordinates)
 
+        #TODO: Are contrastive trace coordinates still valuable?
         self.contrasted_trace_coordinates[index] = traces_coordinates
         return line_traces
 
@@ -179,7 +197,9 @@ class LearningVisualizer:
         row_count = ceil(contrasted_count / self.SUBPLOTS_PER_ROW)
         fig = make_subplots(row_count + 1, self.SUBPLOTS_PER_ROW + 1, specs=self.subplot_specs,
                             column_widths=self.column_widths, column_titles=self.column_titles)
+        fig.show()
         fig = self.build_anchor_subplot(fig, anchor_text, contrasted_count)
+        fig.show()
         fig = self.build_contrasted_traces_subplots(fig, contrasted_texts)
         #fig.update_scenes(xaxis=dict(visible=False), yaxis=dict(visible=False), zaxis=dict(visible=False))
         fig.update_layout(title_text="Can you code better than an AI? Choose the matching code for the anchor code.", 
@@ -204,26 +224,64 @@ class LearningVisualizer:
         return user_input
 
     def build_button_shape(self, index):
-        traces = self.contrasted_trace_coordinates[index]
-        min_x = min([trace["x"] for trace in traces])
-        max_x = max([trace["x"] for trace in traces])
-        min_y = min([trace["y"] for trace in traces])
-        max_y = max([trace["y"] for trace in traces])
         x0 = index * self.PAPER_X_DELTA
         x1 = (index + 1) * self.PAPER_X_DELTA
         button = [dict(type="rectangle", xref="paper", yref="paper", x0=x0, x1=x1, y0=0, y1=0.25, color="red")]
+        return button
+
+    def build_anchor_button_shape(self, index, document_count):
+        document_x_delta = 1 / document_count
+        x0 = index * document_x_delta
+        x1 = (index + 1) * document_x_delta
+        button = [dict(type="rectangle", xref="paper", yref="paper", x0=x0, x1=x1, y0=0.2, y1=0.8, color="green")]
         return button
 
     def build_button(self, index, button_shape):
         button = dict(label=f"code segment {index + 1}", method="relayout", args = ["shapes", button_shape])
         return button
 
+    def build_anchor_button(self, index, button_shape):
+        button = dict(label=f"document {index + 1}", method="relayout", args = ["shapes", button_shape])
+        return button
+
     def add_guessing_buttons(self, learning_fig):
+        '''
+        Add buttons to the learning fig for guessing the positive text.
+        '''
+
         button_shapes = list(map(self.build_button_shape, self.contrasted_indices))
         buttons = [self.build_button(index, button_shape) for index, button_shape in enumerate(button_shapes)]
-        print(f"UPDATE: Buttons = {buttons}")
         learning_fig.update_layout(updatemenus=[dict(type="buttons", buttons=buttons)])
         return learning_fig
+
+    def add_anchor_buttons(self, learning_fig, document_inds):
+        '''
+        Add buttons for selecting an anchor to the Plotly figure.
+        '''
+
+        build_anchor_button_shape = partial(self.build_anchor_button_shape, document_count=len(document_inds))
+        button_shapes = list(map(build_anchor_button_shape, document_inds))
+        buttons = [self.build_anchor_button(index, button_shape) for index, button_shape in enumerate(button_shapes)]
+        learning_fig.update_layout(updatemenus=[dict(type="buttons", buttons=buttons)])
+        return learning_fig
+
+    def prepare_dataset_from_df(self, code_df, text_column="code"):
+        '''
+        Inputs
+        code_df (DataFrame): Dataframe with rows for each docstring and script.
+        text_column (str):   Column name that documents will be made from.
+
+        Outputs
+        Build a Declutr dataset with animation data for each batch.
+        '''
+
+        code_df = drop_nan_text(code_df, text_column=text_column)
+        self.seq_processor.fit_tokenizer_in_chunks(code_df, text_column=text_column)
+        code_df = self.seq_processor.tokenize_document_df(code_df, text_column=text_column)
+        code_df = self.seq_processor.add_document_size_column(code_df)
+        code_df = self.seq_processor.filter_documents_by_size(code_df)
+        declutr_dataset = self.seq_processor.get_dataset(code_df)
+        return declutr_dataset
 
     def build_learning_visuals(self):
         '''
@@ -231,29 +289,79 @@ class LearningVisualizer:
         '''
 
         code_df = get_code_df()
-        self.seq_processor.fit_tokenizer_in_chunks(code_df, text_column="code")
-        code_df = self.seq_processor.tokenize_document_df(code_df, text_column="code")
-        code_df = self.seq_processor.add_document_size_column(code_df)
-        code_df = self.seq_processor.filter_documents_by_size(code_df)
-        declutr_dataset = self.seq_processor.get_dataset(code_df)
-        ask_user_about_stop = lambda batch_index: batch_index % self.num_visuals_at_a_time == 0 and batch_index != 0
+        declutr_dataset = self.prepare_dataset_from_df(code_df)
 
         for i, batch in enumerate(declutr_dataset):
-            if ask_user_about_stop(i):
+            if self.ask_user_about_stop(i):
                 user_input = self.get_user_input()
 
                 if user_input == "no":
                     print(f"EXIT: Stopping visuals as requested. ")
-                    sys.exit(1)
-
-            #batch_fig = self.get_batch_fig(batch)
-            #fig_name = f"batch_{i}_learning_visual"
-            #process_fig(batch_fig, fig_name)
+                    break
 
             subplots_fig = self.get_subplots_fig(batch)
             subplots_fig = self.add_guessing_buttons(subplots_fig)
-            fig_name = f"batch_{i}_learning_subplots"
+            fig_name = f"batch_{i}_learning_subplots.html"
             process_fig(subplots_fig, fig_name)
+
+    def add_document_texts_to_fig(self, fig, document_texts):
+        for document_index, document_text in enumerate(document_texts):
+            document_text = document_text.decode('utf-8')
+            traces = self.split_contrasted_trace(document_text, document_index)
+            subplot_rows = [1] * len(traces)
+            subplot_cols = [document_index + 1] * len(traces)
+            fig.add_traces(traces, rows=subplot_rows, cols=subplot_cols)
+
+        return fig
+
+    def build_document_selection_fig(self, document_texts):
+        '''
+        Inputs
+        document_texts (array-like): List of texts for each document in the batch.
+
+        Outputs
+        fig (Plotly Figure): A figure showing each document in a subplot with buttons enabling user to choose an anchor.
+        '''
+
+        columns = len(document_texts)
+        rows = 1
+        subplot_params = self.build_process_subplot_params(document_texts, rows=rows)
+        fig = make_subplots(rows=rows, cols=columns, **subplot_params, shared_xaxes=False, shared_yaxes=False)
+        fig.update_scenes(xaxis=dict(visible=False), yaxis=dict(visible=False), zaxis=dict(visible=False))
+        fig.show()
+        fig = self.add_document_texts_to_fig(fig, document_texts)
+        document_inds = range(columns)
+        fig = self.add_anchor_buttons(fig, document_inds)
+
+        #TODO: Add buttons to choose anchor document.
+        fig.update_layout(title_text=self.DOC_SELECTION_TITLE_TEXT, title_x=0.5, title_font=dict(size=32), showlegend=False)
+        fig.update_annotations(font_size=24)
+        return fig
+
+    def animate_batch_processing(self, batch):
+        sequences, labels = batch
+        document_texts = sequences["document_texts"].numpy().tolist()
+        document_selection_fig = self.build_document_selection_fig(document_texts)
+        process_fig(document_selection_fig, "processing_animation.html")
+
+    def build_processing_visuals(self):
+        '''
+        Build, show, and save Plotly HTML's illustrating first steps of DeClutr processing. A visual is displayed for
+        each batch in the dataset processed from <code_df>.
+        '''
+
+        code_df = get_code_df()
+        declutr_dataset = self.prepare_dataset_from_df(code_df, text_column="docstring")
+
+        for i, batch in enumerate(declutr_dataset):
+            if self.ask_user_about_stop(i):
+                user_input = self.get_user_input()
+
+                if user_input == "no":
+                    print(f"EXIT: Stopping visuals as requested. ")
+                    break
+
+            self.animate_batch_processing(batch)
 
 if __name__ == "__main__":
     # Simple script for visualizing the DeClutr code learning task.
@@ -261,4 +369,5 @@ if __name__ == "__main__":
     sampling = ast.literal_eval(sampling) / 100
     visualizer = LearningVisualizer()
     visualizer.build_learning_visuals()
+    visualizer.build_processing_visuals()
 

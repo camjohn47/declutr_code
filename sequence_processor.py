@@ -478,7 +478,6 @@ class SequenceProcessor():
             # Provide intermediate variables\steps of the process for making visuals.
             if self.animate_batch_prep:
                 document_texts = document_chunk["docstring"].values
-                print(f"UPDATE: document texts = {document_texts}")
                 input_sequences["document_texts"] = document_texts
                 input_sequences["anchor_index"] = anchor_index
                 input_sequences["anchor_start"] = self.anchor_start
