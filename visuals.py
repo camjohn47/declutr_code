@@ -47,6 +47,8 @@ def make_histogram_comparison(hist_vals, rows, cols, subplot_titles=[], subplot_
     '''
 
     fig = make_subplots(rows=rows, cols=cols, subplot_titles=subplot_titles)
+    removed_docs = max(hist_vals[0])
+    yaxis_range = [0, removed_docs]
     min_doc_size = min(hist_vals[1])
     xaxis_range = xaxis_range if xaxis_range else XAXIS_RANGE
 
@@ -56,10 +58,10 @@ def make_histogram_comparison(hist_vals, rows, cols, subplot_titles=[], subplot_
         col = (i % cols) + 1
         fig.add_trace(go.Histogram(x=hist_vals[i], histfunc=histfunc, histnorm=histnorm, xbins=xbins), row=row, col=col)
         fig.update_xaxes(subplot_xaxis[i], row=row, col=col, range=xaxis_range)
-        fig.update_yaxes(subplot_yaxis[i], row=row, col=col)
+        fig.update_yaxes(subplot_yaxis[i], row=row, col=col, range=yaxis_range)
         fig.add_vline(min_doc_size, row=row, col=col)
 
-    fig.update_layout(layout_args)
+    fig.update_layout(layout_args, showlegend=False)
     return fig
 
 def process_fig(fig, path=None):
