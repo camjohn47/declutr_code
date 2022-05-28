@@ -1,5 +1,5 @@
 from experiment import Experiment
-from common_funcs import get_argparse_name, mix_lists
+from common_funcs import get_argparse_name, mix_lists, make_path_directories
 
 import subprocess
 
@@ -37,31 +37,52 @@ class DeclutrExperiment(Experiment):
         self.constant_arg_vals = constant_arg_vals
         self.script = script
         self.id_template = id_template
-        self.experiment_id = self.build_experiment_id()
-        self.experiment_directory = os.path.join(self.EXPERIMENTS_DIRECTORY, self.experiment_id)
-        Path(self.experiment_directory).mkdir(parents=True, exist_ok=True)
-        self.build_config()
         self.models_dir = models_dir if models_dir else self.models_dir
         self.post_query_script = self.get_full_execution_path("codesearch_evaluation.py")
+        self.initialize_experiment_directory()
 
-    def reset_experiment_directory(self):
+    def initialize_experiment_directory(self):
+        self.experiment_id = self.build_experiment_id()
+        self.experiment_directory = os.path.join(self.EXPERIMENTS_DIRECTORY, self.experiment_id)
+
         if os.path.exists(self.experiment_directory):
             print(f"WARNING: Experiment directory already exists in {self.experiment_directory}. Removing the existing data. ")
             shutil.rmtree(self.experiment_directory)
 
-    def build_tensorboard_directory(self, model_id):
+        Path(self.experiment_directory).mkdir(parents=True, exist_ok=True)
+        self.build_config()
+        self.save_config()
+
+    def build_tensorboard_directory(self):
         tensorboard_directory = os.path.join(self.experiment_directory, "tensorboard_logs")
         Path(tensorboard_directory).mkdir(parents=True, exist_ok=True)
         return tensorboard_directory
 
     def build_config(self):
-        self.config = dict(variable=self.variable_arg, variable_domain=self.variable_domain, script=self.script)
-        print(f"UPDATE: Config = {self.config}")
+        '''
+        Build dictionary with experiment parameters.
+        '''
+        self.config = dict(variable=self.variable_arg, variable_domain=self.variable_domain, script=self.script,
+                           constant_arg_vals=self.constant_arg_vals)
+        print(f"UPDATE: Declutr Experiment built config = {self.config}.")
 
-    def get_config(self):
-        return self.config
+    def save_config(self):
+        '''
+        Save config to a readable txt file in experiment dir.
+        '''
+
+        self.config_path = os.path.join(self.experiment_directory, "config.txt")
+
+        with open(self.config_path, "w") as file:
+            print(f"UPDATE: Declutr Experiment writing config to {self.config_path}.")
+            file.write(str(self.config))
 
     def collect_models_results(self):
+        '''
+        Outputs
+        models_results (DataFrame): A df with performance metrics for different experiment trials.
+        '''
+
         model_ids = self.get_model_ids()
         model_directories = self.get_model_directories()
         model_id_to_value = self.get_model_id_to_variable_val()
@@ -146,8 +167,6 @@ class DeclutrExperiment(Experiment):
         '''
         Train different DeClutr models over the dependent variable values\domain.
         '''
-
-        self.reset_experiment_directory()
 
         for variable_value in self.variable_domain:
             call_args = self.get_script_call_args(variable_value=variable_value)
