@@ -7,7 +7,6 @@ from common_funcs import get_argparse_name, mix_lists
 
 import re
 
-#TODO: Experiment abstract class that can be used for NEL, NER, CodeSearch, ... experiments.
 class Experiment(abc.ABC):
     EXPERIMENTS_DIRECTORY = "experiments"
     MODELS_DIR = "models"
@@ -22,6 +21,8 @@ class Experiment(abc.ABC):
         self.models_dir = models_dir if models_dir else self.MODELS_DIR
 
         #TODO: Config building and saving in experiment directory.
+        self.build_config()
+        self.save_config()
 
     @abstractmethod
     def run(self):
@@ -32,13 +33,15 @@ class Experiment(abc.ABC):
         pass
 
     @abstractmethod
-    def get_config(self):
+    def build_config(self):
+        pass
+
+    @abstractmethod
+    def save_config(self):
         pass
 
     def build_experiment_id(self):
         experiment_id = f"{self.variable_arg}={'_vs_'.join(self.variable_domain)}"
-        constant_ids = [f"constant_{arg}={val}" for arg, val in self.constant_arg_vals.items()]
-        experiment_id = "_".join([experiment_id, *constant_ids])
         return experiment_id
 
     # Methods used for generating subprocess arguments of different experiment trials/values.
@@ -107,6 +110,7 @@ class Experiment(abc.ABC):
         return loss_metrics
 
     @staticmethod
+    #TODO: Remove this and replace usages with set_path_to_main.
     def get_full_execution_path(execution_script):
         '''
         Ensure that script is executed in declutr_code main.
