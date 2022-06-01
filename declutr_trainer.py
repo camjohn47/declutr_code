@@ -299,6 +299,13 @@ class DeClutrTrainer(SequenceProcessor):
         else:
             return self.count_declutr_mmm_batches(document_df)
 
+    @staticmethod
+    def get_max_bin_height(hist_vals, bin_width):
+        max_hist_vals = hist_vals[0]
+        first_bin_end = bin_width
+        num_vals_in_bin = len(max_hist_vals[max_hist_vals < first_bin_end])
+        return num_vals_in_bin
+
     def filter_document_df(self, document_df, make_visuals=True):
         '''
         Filter documents by length and build/save Plotly histogram for it.
@@ -323,12 +330,13 @@ class DeClutrTrainer(SequenceProcessor):
         hist_vals = [document_sizes_before, document_sizes_after]
         subplot_titles = [f"Before Filter, {len(hist_vals[0])} Scripts", f"After Filter, {len(hist_vals[1])} Scripts"]
         xbins = dict(start=0, end=np.max(document_sizes_after), size=self.min_document_length)
+        yaxis_range = [0, self.get_max_bin_height(hist_vals, bin_width=self.min_document_length)]
 
         #TODO: Simplify this by moving constant arguments to a class dictionary.
         fig = make_histogram_comparison(hist_vals=hist_vals, rows=1, cols=2, subplot_titles=subplot_titles,
                                         subplot_xaxis=self.SUBPLOT_XAXIS, subplot_yaxis=self.SUBPLOT_YAXIS,
-                                        layout_args=self.LAYOUT_ARGS, histnorm="probability", xbins=xbins,
-                                        xaxis_range=self.XAXIS_RANGE)
+                                        layout_args=self.LAYOUT_ARGS, xbins=xbins, xaxis_range=self.XAXIS_RANGE,
+                                        yaxis_range = yaxis_range)
         process_fig(fig, self.document_length_hist_path)
         return document_df
 
@@ -360,6 +368,5 @@ class DeClutrTrainer(SequenceProcessor):
                 val_steps = self.batch_count - train_steps
                 dataset_train = dataset.take(train_steps)
                 dataset_val = dataset.skip(train_steps)
-                print(f'UPDATE: Batch count = {self.batch_count}, train count = {train_steps}, val steps = {val_steps}')
                 self.train_over_grid_search(declutr_model, dataset_train, dataset_val, train_steps, val_steps)
 

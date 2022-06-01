@@ -41,14 +41,12 @@ def make_3d_scatter(df, xyz_columns=["x", "y", "z"], layout_args={},color_column
     return fig 
 
 def make_histogram_comparison(hist_vals, rows, cols, subplot_titles=[], subplot_xaxis=[], subplot_yaxis=[], layout_args={},
-                              histnorm=None, histfunc="count", xbins=None, xaxis_range=None):
+                              histnorm=None, histfunc="count", xbins=None, xaxis_range=None, yaxis_range=None):
     '''
     Compare histograms side-by-side in a single plot.
     '''
 
     fig = make_subplots(rows=rows, cols=cols, subplot_titles=subplot_titles)
-    removed_docs = max(hist_vals[0])
-    yaxis_range = [0, removed_docs]
     min_doc_size = min(hist_vals[1])
     xaxis_range = xaxis_range if xaxis_range else XAXIS_RANGE
 
