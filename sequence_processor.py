@@ -542,14 +542,12 @@ class SequenceProcessor():
     def build_mmm_inputs(self, anchor_sequence):
         '''
         Inouts
-        anchor_sequence: A T-length integer tensor containing T tokens describing the anchor span of
-                         a dcoument.
+        anchor_sequence: A T-length integer tensor containing T tokens describing the anchor span of a document.
 
         Outputs
-        masked_anchor_sequence: The same anchor_sequence tensor, but with a random portion of the tokens
-                                associated with methods masked out.
-        masked_method_tokens: A M-sized integer tensor with the correct token for each masked out method
-                              token.
+        masked_anchor_sequence: The same anchor_sequence tensor, but with a random portion of the tokens associated with
+                                methods masked out.
+        masked_method_tokens: A M-sized integer tensor with the correct token for each masked out method token.
         '''
 
         self.method_tokens = [self.tokenizer.word_index[method] for method in self.method_vocabulary if method != self.MASKED_INDEX]
@@ -574,6 +572,7 @@ class SequenceProcessor():
         input_spec = dict(anchor_sequence=tf.TensorSpec(shape=(None,), dtype=tf.int32),
                           contrasted_sequences=type_spec_from_value(contrasted_sample))
 
+        # Add batch animation data to the specs.
         if self.animate_batch_prep:
             for animation_key in self.ANIMATION_INPUT_KEYS:
                 print(f"UPDATE: Adding animation key {animation_key} spec. ")
