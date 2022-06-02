@@ -27,8 +27,15 @@ get_argparse_name = lambda arg: "-" + "".join([word[0].lower() for word in arg.s
 
 def process_fig(fig, path):
     fig.show()
+    make_path_directories(path)
     print(f"UPDATE: Saving html to {path}")
     fig.write_html(path)
+
+def process_df(df, df_name, csv_path):
+    print(f"UPDATE: Here's the info for df={df_name}. Saving to {csv_path}.")
+    df.info()
+    make_path_directories(csv_path)
+    df.to_csv(csv_path, index=False)
 
 def set_path_to_main(path):
     '''
