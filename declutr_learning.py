@@ -1,7 +1,9 @@
 import os
+from os.path import join
 
 from declutr_trainer import DeClutrTrainer
 from code_parser import CodeParser
+
 import argparse
 
 #TODO: Simplify this using CustomArgParser.
@@ -32,6 +34,8 @@ def get_arg_parser():
                             help="Length of each embedding vector fed to encoder layer.")
     arg_parser.add_argument("-td", "--tensorboard_dir", required=False, default=DeClutrTrainer.tensorboard_dir,
                             help="Directory where tf model fit/validation logs are saved for later analysis.")
+    arg_parser.add_argument("-ei", "--experiment_id", required=False, default=None,
+                            help="If run as part of an experiment, the experiment's string ID.")
     return arg_parser
 
 def get_encoder_config(args):
@@ -42,6 +46,11 @@ def get_encoder_config(args):
 
     return encoder_config
 
+def make_models_dir(args):
+    experiment_id = args["experiment_id"]
+    models_dir = join("experiments", experiment_id, "models") if experiment_id else "models"
+    return models_dir
+
 def get_args():
     arg_parser = get_arg_parser()
     args = vars(arg_parser.parse_args())
@@ -50,11 +59,12 @@ def get_args():
     sequence_processor_args = dict(loss_objective=args["loss_objective"], tokenizer_args=tokenizer_args)
     sampling = args["sampling"]
     encoder_config = get_encoder_config(args)
+    models_dir = make_models_dir(args)
     declutr_trainer_args = dict(sequence_processor_args=sequence_processor_args, encoder_model=args["encoder_model"],
                                 save_format=args["save_format"], visualize_tensors=args["visualize_tensors"], sampling=sampling,
                                 tensorboard_dir=args["tensorboard_dir"], text_column=args["text_column"])
     declutr_model_args = dict(encoder_model=args["encoder_model"], model_id=args["model_id"], encoder_config=encoder_config,
-                              sequence_summarization=args["sequence_summarization"])
+                              sequence_summarization=args["sequence_summarization"], models_directory=models_dir)
     declutr_trainer_args["code_parser_args"] = code_parser_args
     return sequence_processor_args, declutr_trainer_args, declutr_model_args, sampling
 
