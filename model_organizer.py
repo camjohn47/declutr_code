@@ -4,6 +4,7 @@ from glob import glob
 import re
 
 import pandas as pd
+from pandas import DataFrame, read_csv
 
 class ModelOrganizer():
     def __init__(self, fit_log_base="fit_log.csv"):
@@ -14,9 +15,9 @@ class ModelOrganizer():
 
         if not os.path.exists(fit_log_path):
             print(f'WARNING: Fit log not found in {model_directory}!')
-            return pd.DataFrame([]), None
+            return DataFrame([]), None
 
-        fit_log = pd.read_csv(fit_log_path)
+        fit_log = read_csv(fit_log_path)
         return fit_log, fit_log_path
 
     @staticmethod
@@ -37,7 +38,7 @@ class ModelOrganizer():
     def collect_results(self, model_dir):
         model_subdir_pattern = os.path.join(model_dir, "*")
         model_subdirs = [path for path in glob(model_subdir_pattern) if os.path.isdir(path)]
-        collected_results = pd.DataFrame([])
+        collected_results = DataFrame([])
 
         for model_subdir in model_subdirs:
             fit_log, fit_log_path = self.find_fit_log(model_subdir)

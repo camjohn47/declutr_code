@@ -11,14 +11,23 @@ class Experiment(abc.ABC):
     EXPERIMENTS_DIRECTORY = "experiments"
     MODELS_DIR = "models"
 
-    def __int__(self, variable_arg, variable_domain, constant_arg_vals, script, constant_args, models_dir=None, id_template="VARIABLE=VALUE"):
+    def __int__(self, variable_arg, variable_domain, constant_arg_vals, script, models_dir=None, id_template="VARIABLE=VALUE",
+                add_constants_to_id=None):
         self.variable_arg = variable_arg
         self.variable_domain = variable_domain
         self.constant_arg_vals = constant_arg_vals
+        self.constant_args = list(self.constant_arg_vals.keys())
         self.script = script
         self.id_template = id_template
-        self.constant_args = constant_args
         self.models_dir = models_dir if models_dir else self.MODELS_DIR
+
+        # Constants to include in experiment id.
+        self.add_constants_to_id = add_constants_to_id
+        exists_unlisted_constant = lambda constants: any([constant not in self.constant_arg_vals for constant in constants])
+
+        # Checks if there's any requested constant to include in experiment id that's not specified in <constant_arg_vals>.
+        if add_constants_to_id and exists_unlisted_constant(self.add_constants_to_id):
+            raise ValueError("ERROR: Constants in add constants to id that aren't present in constant arg vals!")
 
         #TODO: Config building and saving in experiment directory.
         self.build_config()
@@ -28,7 +37,6 @@ class Experiment(abc.ABC):
     def run(self):
         pass
 
-    @abstractmethod
     def collect_models_results(self):
         pass
 
@@ -42,6 +50,11 @@ class Experiment(abc.ABC):
 
     def build_experiment_id(self):
         experiment_id = f"{self.variable_arg}={'_vs_'.join(self.variable_domain)}"
+
+        for constant in self.add_constants_to_id:
+            constant_val = self.constant_arg_vals[constant]
+            experiment_id = "_".join([experiment_id, f"{constant}={constant_val}"])
+
         return experiment_id
 
     # Methods used for generating subprocess arguments of different experiment trials/values.
@@ -113,7 +126,7 @@ class Experiment(abc.ABC):
     #TODO: Remove this and replace usages with set_path_to_main.
     def get_full_execution_path(execution_script):
         '''
-        Ensure that script is executed in declutr_code main.
+        Ensure that the execution script is executed in declutr_code main directory.
         '''
 
         curr_dir = os.getcwd()

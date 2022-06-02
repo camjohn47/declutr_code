@@ -28,7 +28,7 @@ class DeclutrExperiment(Experiment):
     TITLE_SUBSTITUTIONS = {"Rnn": "RNN", "Val": "Validation"}
 
     def __init__(self, variable_arg, variable_domain, constant_arg_vals={}, script="declutr_learning.py",
-                 id_template="VARIABLE=VALUE", models_dir=None):
+                 id_template="VARIABLE=VALUE", models_dir=None, add_constants_to_id=None):
         self.variable_arg = variable_arg
         # Used to represent variable during script call.
         self.variable_argparse_name = get_argparse_name(self.variable_arg)
@@ -39,6 +39,7 @@ class DeclutrExperiment(Experiment):
         self.id_template = id_template
         self.models_dir = models_dir if models_dir else self.models_dir
         self.post_query_script = self.get_full_execution_path("codesearch_evaluation.py")
+        self.add_constants_to_id = add_constants_to_id
         self.initialize_experiment_directory()
 
     def initialize_experiment_directory(self):
@@ -53,8 +54,8 @@ class DeclutrExperiment(Experiment):
         self.build_config()
         self.save_config()
 
-    def build_tensorboard_directory(self):
-        tensorboard_directory = os.path.join(self.experiment_directory, "tensorboard_logs")
+    def build_tensorboard_directory(self, model_id):
+        tensorboard_directory = os.path.join(self.experiment_directory, "models", model_id, "tensorboard_logs")
         Path(tensorboard_directory).mkdir(parents=True, exist_ok=True)
         return tensorboard_directory
 
@@ -163,6 +164,10 @@ class DeclutrExperiment(Experiment):
         call_args += [self.TENSORBOARD_ARG, tensorboard_dir]
         return call_args
 
+    def add_experiment_id_arg(self, call_args):
+        call_args += ["-ei", self.experiment_id]
+        return call_args
+
     def run(self):
         '''
         Train different DeClutr models over the dependent variable values\domain.
@@ -172,25 +177,13 @@ class DeclutrExperiment(Experiment):
             call_args = self.get_script_call_args(variable_value=variable_value)
             call_args = list(map(str, call_args))
             call_args = self.add_tensorboard_arg(call_args)
-            print(f"\nNEW EXPERIMENT: Running Declutr experiment with {self.variable_arg} = {variable_value}, "
-                    f"call args = {call_args}.")
+            call_args = self.add_experiment_id_arg(call_args)
+            print(f"\nNEW EXPERIMENT: Running Declutr experiment with {self.variable_arg} = {variable_value}, call args"
+                  f" = {call_args}.")
             subprocess.run(call_args)
 
-    def run_post_querying(self):
-        '''
-        AFTER RUNNING ABOVE EXPERIMENT: Use different DeClutr models for code retrieval task.
-        '''
 
-        for variable_value in self.variable_domain:
-            model_id = self.get_model_id(variable_value)
-            query_script_args = ["-qmi", "-smi"]
 
-            #TODO: Integrate mixed query\script encoding experiments.
-            query_script_values = [model_id, model_id]
-            call_args = mix_lists([query_script_args, query_script_values])
-            call_args = ["python", self.post_query_script] + call_args
-            print(f"UPDATE: Running post-querying experiment with {call_args}.")
-            subprocess.call(call_args)
 
 
 
