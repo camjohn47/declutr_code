@@ -51,9 +51,10 @@ class Experiment(abc.ABC):
     def build_experiment_id(self):
         experiment_id = f"{self.variable_arg}={'_vs_'.join(self.variable_domain)}"
 
-        for constant in self.add_constants_to_id:
-            constant_val = self.constant_arg_vals[constant]
-            experiment_id = "_".join([experiment_id, f"{constant}={constant_val}"])
+        if self.add_constants_to_id:
+            for constant in self.add_constants_to_id:
+                constant_val = self.constant_arg_vals[constant]
+                experiment_id = "_".join([experiment_id, f"{constant}={constant_val}"])
 
         return experiment_id
 
