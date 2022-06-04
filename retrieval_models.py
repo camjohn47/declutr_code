@@ -25,14 +25,14 @@ class QueryEncoderRetriever():
     RETRIEVAL_DIR = "retrieval_results"
     CACHED_QUERIES_NAME = "codesearch_results.csv"
 
-    def __init__(self, query_encoder_id, script_encoder_id, retrieval_count=10):
+    def __init__(self, query_encoder_id, script_encoder_id, retrieved_docs=10):
         self.query_encoder_id = query_encoder_id
         self.query_deployer = EncoderDeployer(self.query_encoder_id, text_column="docstring", encoder_model="transformer")
         self.script_encoder_id = script_encoder_id
         self.script_deployer = EncoderDeployer(self.script_encoder_id, text_column="code", encoder_model="transformer")
 
         # Number of retrieved scripts for each query.
-        self.retrieval_count = retrieval_count
+        self.retrieved_docs = retrieved_docs
         self.build_dir()
         self.cached_queries_path = join(self.dir, self.CACHED_QUERIES_NAME)
         self.load_cached_queries()
@@ -55,7 +55,7 @@ class QueryEncoderRetriever():
             print(f"UPDATE: Retrieval loading cached results in {self.cached_queries_path}.")
             converters = {self.ANSWER_COL: self.convert_indices_column}
             self.cached_queries_df = read_csv(self.cached_queries_path, converters=converters)
-            self.cached_queries = set(self.cached_queries_df["query"].values.tolist())
+            self.cached_queries = set(self.cached_queries_df["query"].unique().tolist())
 
     def update_cached_queries(self, results_df):
         new_queries = results_df[~results_df["query"].isin(self.cached_queries)]
@@ -65,13 +65,13 @@ class QueryEncoderRetriever():
 
     def calc_min_document_index(self, query_encoding, document_encodings):
         '''
-        Return indices of the <self.retrieval_count> closest documents to the query encoding.
+        Return indices of the <self.retrieved_docs> closest documents to the query encoding.
         '''
 
         query_encoding = np.expand_dims(query_encoding, axis=0)
         query_distances = distance_matrix(document_encodings, query_encoding)
         min_document_index = np.argsort(query_distances, axis=0)
-        min_document_index = np.squeeze(min_document_index)[:self.retrieval_count]
+        min_document_index = np.squeeze(min_document_index)[:self.retrieved_docs]
         min_distance = query_distances[min_document_index]
         return min_document_index, min_distance
 
@@ -87,7 +87,10 @@ class QueryEncoderRetriever():
 
     @staticmethod
     def make_encodings_compatibile(query_encodings, script_encodings):
-        ''''''
+        '''
+        Reduces query or script encodings if they have more dimensions than the other. Ensures distance is well-defined.
+        '''
+
         query_dims = query_encodings.shape[1]
         script_dims = script_encodings.shape[1]
 
@@ -104,7 +107,23 @@ class QueryEncoderRetriever():
 
         return query_encodings, script_encodings
 
-    def transform(self, code_df):
+    @staticmethod
+    def add_attributes_to_results(results_df, code_df, attributes=[]):
+        '''
+        Join a list of columns from code_df with results_df.
+        '''
+
+        attribute_in_code_df = lambda attribute: attribute in code_df.columns
+        all_attributes_in_code_df = all([attribute_in_code_df(attribute) for attribute in attributes])
+
+        if not all_attributes_in_code_df:
+            raise ValueError(f"ERROR: Some of the attributes in {attributes} not found in code df columns = {code_df.columns}.")
+
+        code_df = code_df[attributes]
+        results_df = results_df.merge(code_df, on="code", how="outer")
+        return results_df
+
+    def transform(self, code_df, attributes=["language"]):
         '''
         Inputs
         code_df (DataFrame): Code-based dataframe with code and docstring text columns.
@@ -133,21 +152,15 @@ class QueryEncoderRetriever():
             query_encoding = query_encodings[i, :]
             optimal_index, optimal_distance = self.minimize_query_distance(query, query_encoding, scripts, script_encodings)
             optimal_script = scripts[optimal_index]
-            results_row = {self.QUERY_COL: i, "query": query, self.ANSWER_COL: optimal_index,
-                               "retrieved_script": optimal_script, "retrieved_distance": optimal_distance}
+            results_row = {self.QUERY_COL: i, "query": query, self.ANSWER_COL: optimal_index, "retrieved_distance": optimal_distance}
             results_df.append(results_row)
             prog_bar.update(i + 1)
 
         results_df = DataFrame(results_df)
+        results_df = self.add_attributes_to_results(results_df, code_df, attributes)
         self.update_cached_queries(results_df)
         return results_df
 
-    def build_results(self, code_df):
-        '''
-        Retrieve scripts for queries and update the cache with new results.
-        '''
-
-        results_df = self.transform(code_df)
 
 
 #%%
