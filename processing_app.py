@@ -124,7 +124,7 @@ class ProcessingApp():
             doc_button_styles = [dict(display="none") for button in doc_button_outputs]
             anchor_button_styles = [self.BUTTON_STYLE for button in start_button_outputs]
             print(f"UPDATE: Selecting anchor document figure. ")
-            anchor_title = f"You've chosen document {clicked_doc_index + 1}!"
+            anchor_title = f"You've chosen document {clicked_doc_index + 1}. Select a start word!"
             return anchor_figure, anchor_title, *doc_button_styles, *anchor_button_styles
 
         # Updates button visibility according to figure mode. Mode can be either multiple anchor documents before selection,

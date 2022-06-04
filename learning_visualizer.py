@@ -21,17 +21,17 @@ class LearningVisualizer:
     Z_DELTA = .05
     Y_DELTA = .02
     TEXT_SIZE = 8
-    SUBPLOTS_PER_ROW = 8
-    PAPER_X_DELTA = 1 / SUBPLOTS_PER_ROW
-    PAPER_Y_DELTA = 1 / 2
-    ANCHOR_COL = ceil(SUBPLOTS_PER_ROW / 2) + 1
     COLUMN_WIDTH = 3000
 
     # Title of interactive document selection fig.
-    DOC_SELECTION_TITLE_TEXT = "Declutr Step 1: Choose your anchor document!"
+    DOC_SELECTION_TITLE_TEXT = "Step 1: Choose your anchor document!"
 
     #NOTE: Animate batch prep should be set to True for full functionality!
-    seq_processor_args = dict(documents_per_batch=4, animate_batch_prep=True)
+    seq_processor_args = dict(documents_per_batch=2, animate_batch_prep=True, max_document_length=100, anchors_per_document=1)
+    SUBPLOTS_PER_ROW = seq_processor_args["documents_per_batch"] * 2 * seq_processor_args["anchors_per_document"]
+    PAPER_X_DELTA = 1 / SUBPLOTS_PER_ROW
+    PAPER_Y_DELTA = 1 / 2
+    ANCHOR_COL = ceil(SUBPLOTS_PER_ROW / 2) + 1
 
     def __init__(self, seq_processor=None, seq_processor_args={}, words_per_line=10, num_visuals_at_a_time=1):
         self.seq_processor_args.update(seq_processor_args)
@@ -44,6 +44,7 @@ class LearningVisualizer:
         self.get_column_title = lambda col: f"code segment {self.get_code_segment_col(col)}" if not self.is_anchor_col(col)  \
                                         else "anchor code segment"
         self.get_document_title = lambda col: f"document {col + 1}"
+        self.get_doc_size = lambda doc: len(doc.split())
         self.build_subplot_parameters()
         self.contrasted_trace_coordinates = dict()
         self.contrasted_count = self.seq_processor.batch_size
@@ -357,16 +358,18 @@ class LearningVisualizer:
         fig = Figure()
         anchor_traces = self.build_anchor_process_traces(anchor_doc)
         fig.add_traces(anchor_traces)
-        fig.update_layout(title=f"You've chosen document {anchor_doc_index}!", title_x=0.5, title_font=dict(size=32),
+        fig.update_layout(title_x=0.5, title_font=dict(size=32),
                           xaxis=dict(visible=False), yaxis=dict(visible=False), height=1800, showlegend=False)
         return fig
 
-    def get_processing_figure(self, batch):
+    def get_batch_processing_visuals(self, batch):
         sequences, labels = batch
         document_texts = sequences["document_texts"].numpy().tolist()
         document_selection_fig = self.build_document_selection_fig(document_texts)
         document_count = len(document_texts)
-        return document_selection_fig, document_count
+        max_doc_size = max([self.get_doc_size(doc) for doc in document_texts])
+        processing_visuals = dict(fig=document_selection_fig, doc_count=document_count, max_doc_word_count=max_doc_size)
+        return processing_visuals
 
     def generate_processing_visuals(self):
         '''
@@ -384,13 +387,14 @@ class LearningVisualizer:
                 if user_input == "no":
                     print(f"EXIT: Stopping visuals as requested. ")
                     break
-
-            processing_fig, document_count = self.get_processing_figure(batch)
-            yield processing_fig, document_count
+            
+            processing_visuals = self.get_batch_processing_visuals(batch)
+            yield processing_visuals
 
     def build_processing_visuals(self):
-        for i, batch_processing_fig in enumerate(self.generate_processing_visuals()):
+        for i, processing_visuals in enumerate(self.generate_processing_visuals()):
             fig_path = os.path.join("animations", f"batch_processing_visual_{i + 1}.html")
+            batch_processing_fig = processing_visuals["fig"]
             process_fig(batch_processing_fig, fig_path)
 
 if __name__ == "__main__":
