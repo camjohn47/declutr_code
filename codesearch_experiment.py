@@ -16,7 +16,8 @@ class CodeSearchExperiment(Experiment):
     ANSWER_COL = QueryEncoderRetriever.ANSWER_COL
     EXPERIMENTS_DIRECTORY = join(Experiment.EXPERIMENTS_DIRECTORY, "CodeSearch")
 
-    def __init__(self, variable_arg, variable_val, variable_domain, constant_arg_vals, sampling=1):
+    def __init__(self, variable_arg, variable_val, variable_domain, constant_arg_vals, sampling=1, add_constants_to_id=None,
+                 retrieved_docs=50):
         self.variable_arg = variable_arg
 
         if self.variable_arg not in self.VARIABLE_CHOICES:
@@ -27,6 +28,7 @@ class CodeSearchExperiment(Experiment):
         self.constant_args = list(self.constant_arg_vals.keys())
         self.constant_arg = self.constant_args[0]
 
+        # Make sure that specified constant is either query or answer encoder, depending on which is variable above.
         if self.constant_arg != required_variable_arg:
             raise ValueError(f"ERROR: Constant argument doesn't match required {required_variable_arg}")
 
@@ -35,18 +37,20 @@ class CodeSearchExperiment(Experiment):
         self.variable_domain = variable_domain
         self.sampling = sampling
         self.accuracy_fig_title = f"Top K Accuracy for {self.variable_arg}"
-
+        self.add_constants_to_id = add_constants_to_id
         self.experiment_id = self.build_experiment_id()
         self.experiment_directory = join(self.EXPERIMENTS_DIRECTORY, self.experiment_id)
         self.results_dir = join(self.experiment_directory, "results")
         Path(self.results_dir).mkdir(exist_ok=True, parents=True)
         self.accuracy_fig_path = join(self.results_dir, "top_<K>_accuracy_fig.html")
+        self.retrieved_docs = retrieved_docs
+        self.retrieved_doc_range = range(1, self.retrieved_docs + 1)
         self.build_config()
         self.save_config()
 
     def build_config(self):
         self.config = {"constant_arg": self.constant_arg, "variable_arg": self.variable_arg,
-                       "variable_domain": self.variable_domain}
+                       "variable_domain": self.variable_domain, "retrieved_docs": self.retrieved_docs}
 
     def save_config(self):
         self.config_path = join(self.experiment_directory, "config.txt")
@@ -62,7 +66,8 @@ class CodeSearchExperiment(Experiment):
         results_df = DataFrame()
 
         for variable_value in self.variable_domain:
-            query_encoder_args = {self.variable_arg: variable_value, self.constant_arg: self.constant_arg_val}
+            query_encoder_args = {self.variable_arg: variable_value, self.constant_arg: self.constant_arg_val,
+                                  "retrieved_docs": self.retrieved_docs}
             query_encoder_retriever = QueryEncoderRetriever(**query_encoder_args)
             code_df = get_code_df(sampling=self.sampling)
             code_df = query_encoder_retriever.transform(code_df)
@@ -78,33 +83,33 @@ class CodeSearchExperiment(Experiment):
         % of docstrings whose script was in top k retrieved scripts.
         '''
 
-        num_correct = query_df[query_df[self.QUERY_COL].isin(query_df[self.ANSWER_COL].values[:top_k])]
+        num_correct = len(query_df[query_df[self.QUERY_COL].isin(query_df[self.ANSWER_COL].values[:top_k])])
         num_queries = len(query_df)
         top_k_accuracy = num_correct / num_queries
         return top_k_accuracy
 
     def build_accuracy_fig(self, analysis_df, k):
         acc_fig = bar(data_frame=analysis_df, x=self.variable_arg, y=f"top_{k}_accuracy")
+        print(f"UPDATE: acc fig = {acc_fig}")
         acc_fig.show()
         acc_fig.update_layout(title_text=self.accuracy_fig_title, title_x=0.5)
         acc_fig.update_xaxes(title_text=self.variable_arg)
         return acc_fig
 
-    def build_accuracy_figs(self, analysis_df, k_range):
-        for k in k_range:
+    def build_accuracy_figs(self, analysis_df):
+        for k in self.retrieved_doc_range:
             accuracy_fig = self.build_accuracy_fig(analysis_df, k=k)
-            print(f"UPDATE: accuracy fig = {accuracy_fig}")
             accuracy_fig_path = sub(r'<K>', str(k), self.accuracy_fig_path)
             process_fig(accuracy_fig, accuracy_fig_path)
 
-    def run_and_analyze(self, k_range=range(1, 6)):
+    def run_and_analyze(self):
         results_df = self.run()
         analysis_rows = []
 
         for variable_val, variable_df in results_df.groupby(self.variable_arg):
             k_accuracies = {}
 
-            for k in k_range:
+            for k in self.retrieved_doc_range:
                 top_k_accuracy = self.calc_top_k_accuracy(variable_df, top_k=k)
                 k_accuracies[f"top_{k}_accuracy"] = top_k_accuracy
 
@@ -113,7 +118,7 @@ class CodeSearchExperiment(Experiment):
 
         analysis_df = DataFrame(analysis_rows)
         analysis_df.info()
-        self.build_accuracy_figs(analysis_df, k_range)
+        self.build_accuracy_figs(analysis_df)
 
 
 
