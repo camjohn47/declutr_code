@@ -24,6 +24,7 @@ cast_tf_tokens = lambda tokens: tf.cast(tokens, dtype=tf.int32)
 
 # Get arg parse abbreviation of an arg by joining each word's first letter.
 get_argparse_name = lambda arg: "-" + "".join([word[0].lower() for word in arg.split("_")])
+make_nested_dirs = lambda dir: Path(dir).mkdir(exist_ok=True, parents=True)
 
 def process_fig(fig, path):
     fig.show()
@@ -196,5 +197,7 @@ def make_path_directories(path):
 
     dir_name = os.path.dirname(path)
     Path(dir_name).mkdir(exist_ok=True, parents=True)
+
+
 
 
