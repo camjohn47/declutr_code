@@ -61,7 +61,7 @@ class QueryEncoderRetriever():
         new_queries = results_df[~results_df["query"].isin(self.cached_queries)]
         self.cached_queries_df = concat([self.cached_queries_df, new_queries])
         print(f"UPDATE: Saving updated cached queries tp {self.cached_queries_path}.")
-        self.cached_queries_df.to_csv(self.cached_queries_path)
+        self.cached_queries_df.to_csv(self.cached_queries_path, index=False)
 
     def calc_min_document_index(self, query_encoding, document_encodings):
         '''
@@ -76,6 +76,10 @@ class QueryEncoderRetriever():
         return min_document_index, min_distance
 
     def minimize_query_distance(self, query, query_encoding, scripts, script_encodings):
+        '''
+        Returns index of script with nearest encoding to the query's encoding, followed by the distance between them.
+        '''
+
         if query in self.cached_queries:
             cached_query = self.cached_queries_df[self.cached_queries_df["query"] == query]
             min_script_index = cached_query[self.ANSWER_COL].values[0]
@@ -119,8 +123,9 @@ class QueryEncoderRetriever():
         if not all_attributes_in_code_df:
             raise ValueError(f"ERROR: Some of the attributes in {attributes} not found in code df columns = {code_df.columns}.")
 
-        code_df = code_df[attributes]
-        results_df = results_df.merge(code_df, on="code", how="outer")
+        for attribute in attributes:
+            results_df[attribute] = code_df[attribute].values
+
         return results_df
 
     def transform(self, code_df, attributes=["language"]):
@@ -135,7 +140,6 @@ class QueryEncoderRetriever():
 
         code_df.dropna(subset=["code"], inplace=True)
         code_df.dropna(subset=["docstring"], inplace=True)
-
         scripts = code_df["code"].values
         queries = code_df["docstring"].values
 
@@ -151,7 +155,6 @@ class QueryEncoderRetriever():
         for i, query in enumerate(queries):
             query_encoding = query_encodings[i, :]
             optimal_index, optimal_distance = self.minimize_query_distance(query, query_encoding, scripts, script_encodings)
-            optimal_script = scripts[optimal_index]
             results_row = {self.QUERY_COL: i, "query": query, self.ANSWER_COL: optimal_index, "retrieved_distance": optimal_distance}
             results_df.append(results_row)
             prog_bar.update(i + 1)
