@@ -90,6 +90,16 @@ def get_rank(tensor):
         rank = 0
     return rank
 
+def have_equal_shapes(tensor_a, tensor_b):
+    all_dims_are_equal = lambda x, y: all([x.shape[i] == y.shape[i] for i in range(get_rank(y))])
+
+    if get_rank(tensor_a) != get_rank(tensor_b):
+        return False
+    elif all_dims_are_equal(tensor_a, tensor_b):
+        return True
+    else:
+        return False
+
 def get_sequence_processor(model_dir, suffix="processor.dill"):
     processor_path = os.path.join(model_dir, suffix)
 
