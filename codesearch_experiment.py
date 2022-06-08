@@ -5,6 +5,9 @@ from retrieval_models import QueryEncoderRetriever
 from pandas import DataFrame, concat
 
 from plotly.express import bar
+from plotly.graph_objects import Scatter, Figure
+
+from numpy import squeeze
 
 from os.path import join
 from pathlib import Path
@@ -42,9 +45,13 @@ class CodeSearchExperiment(Experiment):
         self.experiment_directory = join(self.EXPERIMENTS_DIRECTORY, self.experiment_id)
         self.results_dir = join(self.experiment_directory, "results")
         Path(self.results_dir).mkdir(exist_ok=True, parents=True)
+
+        # Build paths in results_dir for saving specific visuals and CSV's.
         self.accuracy_fig_path = join(self.results_dir, "top_<K>_accuracy_fig.html")
+        self.top_k_line_path = join(self.results_dir, "top_k_accuracy_line.html")
+        self.results_csv_path = join(self.results_dir, "codesearch")
         self.retrieved_docs = retrieved_docs
-        self.retrieved_doc_range = range(1, self.retrieved_docs + 1)
+        self.retrieved_doc_range = list(range(1, self.retrieved_docs + 1))
         self.build_config()
         self.save_config()
 
@@ -83,14 +90,15 @@ class CodeSearchExperiment(Experiment):
         % of docstrings whose script was in top k retrieved scripts.
         '''
 
-        num_correct = len(query_df[query_df[self.QUERY_COL].isin(query_df[self.ANSWER_COL].values[:top_k])])
+        answer_in_top_k = lambda row: row[self.QUERY_COL] in row[self.ANSWER_COL][:top_k]
+        query_df["answer_in_top_k"] = query_df.apply(answer_in_top_k, axis=1)
+        num_correct = query_df["answer_in_top_k"].sum()
         num_queries = len(query_df)
         top_k_accuracy = num_correct / num_queries
         return top_k_accuracy
 
     def build_accuracy_fig(self, analysis_df, k):
         acc_fig = bar(data_frame=analysis_df, x=self.variable_arg, y=f"top_{k}_accuracy")
-        print(f"UPDATE: acc fig = {acc_fig}")
         acc_fig.show()
         acc_fig.update_layout(title_text=self.accuracy_fig_title, title_x=0.5)
         acc_fig.update_xaxes(title_text=self.variable_arg)
@@ -101,6 +109,22 @@ class CodeSearchExperiment(Experiment):
             accuracy_fig = self.build_accuracy_fig(analysis_df, k=k)
             accuracy_fig_path = sub(r'<K>', str(k), self.accuracy_fig_path)
             process_fig(accuracy_fig, accuracy_fig_path)
+
+    def build_top_k_accuracy_line(self, analysis_df):
+        top_k_fig = Figure()
+        top_k_cols = [f"top_{k}_accuracy" for k in self.retrieved_doc_range]
+        colors = ["red", "blue"]
+        var_ind = 0
+
+        for var, var_results_df in analysis_df.groupby(self.variable_arg):
+            var_accuracies = var_results_df[top_k_cols].values
+            var_accuracies = squeeze(var_accuracies)
+            color = colors[var_ind]
+            line = Scatter(x=self.retrieved_doc_range, y=var_accuracies, name=var, marker=dict(color=color), mode="lines+markers")
+            top_k_fig.add_trace(line)
+            var_ind += 1
+
+        process_fig(top_k_fig, self.top_k_line_path)
 
     def run_and_analyze(self):
         results_df = self.run()
@@ -117,8 +141,8 @@ class CodeSearchExperiment(Experiment):
             analysis_rows.append(df_row)
 
         analysis_df = DataFrame(analysis_rows)
-        analysis_df.info()
-        self.build_accuracy_figs(analysis_df)
+        self.build_top_k_accuracy_line(analysis_df)
+        return analysis_df
 
 
 
