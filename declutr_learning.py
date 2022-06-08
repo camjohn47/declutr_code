@@ -16,7 +16,7 @@ def get_arg_parser():
     arg_parser.add_argument("-lo", "--loss_objective", choices=["declutr_contrastive", "declutr_masked_"],
                             default="declutr_contrastive", help="The learning objective of the NN"
                                                                 " that determines its architecture.")
-    arg_parser.add_argument('-em', "--encoder_model", choices=["rnn", "transformer"], default='rnn')
+    arg_parser.add_argument('-em', "--encoder_model", choices=["rnn", "transformer_encoder", "transformer"], default='rnn')
     arg_parser.add_argument("-s", "--sampling", type=float, default=1)
     arg_parser.add_argument("-sf", "--save_format", type=str, default="tf")
     arg_parser.add_argument("-vt", "--visualize_tensors", type=bool, default=False)
@@ -36,10 +36,13 @@ def get_arg_parser():
                             help="Directory where tf model fit/validation logs are saved for later analysis.")
     arg_parser.add_argument("-ei", "--experiment_id", required=False, default=None,
                             help="If run as part of an experiment, the experiment's string ID.")
+    arg_parser.add_argument("-upe", "--use_positional_encodings", required=False, default=False, type=bool,
+                            help="Add positional encodings to the transformer's encoder/decoder input embeddings.")
     return arg_parser
 
 def get_encoder_config(args):
-    encoder_config = dict(embedding_args=dict(output_dim=args["embedding_dimensions"]))
+    encoder_config = dict(embedding_args=dict(output_dim=args["embedding_dimensions"]),
+                          use_positional_encodings=args["use_positional_encodings"])
 
     if args["encoder_model"] == "rnn":
         encoder_config["architecture"] = args["encoder_architecture"]
