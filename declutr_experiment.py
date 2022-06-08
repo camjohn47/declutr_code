@@ -32,7 +32,7 @@ class DeclutrExperiment(Experiment):
         self.variable_arg = variable_arg
         # Used to represent variable during script call.
         self.variable_argparse_name = get_argparse_name(self.variable_arg)
-        self.variable_domain = variable_domain
+        self.variable_domain = [str(var) for var in variable_domain]
         self.variable_domain_vs = " vs. ".join([var.capitalize() for var in self.variable_domain])
         self.constant_arg_vals = constant_arg_vals
         self.script = script
@@ -180,7 +180,7 @@ class DeclutrExperiment(Experiment):
             call_args = self.add_experiment_id_arg(call_args)
             print(f"\nNEW EXPERIMENT: Running Declutr experiment with {self.variable_arg} = {variable_value}, call args"
                   f" = {call_args}.")
-            subprocess.run(call_args)
+            subprocess.run(call_args, check=True)
 
 
 
