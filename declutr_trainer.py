@@ -30,6 +30,8 @@ import numpy as np
 import dill
 
 tf.executing_eagerly()
+
+# Make sure Tensorflow can find your GPU and is using it properly.
 tf.config.list_physical_devices()
 
 class DeClutrTrainer(SequenceProcessor):
@@ -40,7 +42,7 @@ class DeClutrTrainer(SequenceProcessor):
     metrics = [CategoricalAccuracy(), TopKCategoricalAccuracy(k=TOP_K, name=f"top_{TOP_K}_categorical_accuracy")]
 
     # Hyper-parameters and domains optimized with tensorboard hparams.
-    EMBEDDING_DIM_DOMAIN = [10, 100]
+    EMBEDDING_DIM_DOMAIN = [100]
     HP_EMBEDDING_DIM = hp.HParam('embedding_dimension', hp.Discrete(EMBEDDING_DIM_DOMAIN))
     HPARAMS = [HP_EMBEDDING_DIM]
     DECLUTR_MODEL_CLASSES = dict(declutr_contrastive=DeClutrContrastive, declutr_masked_language=DeclutrMaskedLanguage)
@@ -77,10 +79,10 @@ class DeClutrTrainer(SequenceProcessor):
         self.metrics = metrics if metrics else self.metrics
         self.model_path = None
         self.encoder_model = encoder_model
+        is_transformer_architecture = self.encoder_model in ["transformer", "transformer_encoder"]
 
-        if self.encoder_model == 'transformer' and not self.pad_sequences:
-            print(f'WARNING: Pad sequences not set and transformer encoder is requested! Setting pad'
-                  f' sequences = True. ')
+        if is_transformer_architecture and not self.pad_sequences:
+            print(f'WARNING: Pad sequences not set and transformer architecture is requested! Setting pad sequences = True.')
             self.pad_sequences = True
 
         self.save_format = save_format
@@ -170,6 +172,11 @@ class DeClutrTrainer(SequenceProcessor):
         declutr_args['input_dims'] = vocab_size if self.declutr_model_class == 'declutr_contrastive' else vocab_size + 1
         declutr_args['batch_size'] = self.batch_size
         declutr_args["visualize_tensors"] = self.visualize_tensors
+
+        # If positional encodings are used for Transformer, provide sequence length.
+        if declutr_args["encoder_config"]["use_positional_encodings"]:
+            declutr_args["encoder_config"]["sequence_length"] = self.max_anchor_length
+
         return declutr_args
 
     def set_directories(self, declutr_model):
@@ -275,7 +282,7 @@ class DeClutrTrainer(SequenceProcessor):
         for hparam_combo in hparam_combos:
             callbacks = self.get_model_callbacks(hparam_vals=hparam_combo)
             print(f'UPDATE: Beginning training with HParam combo {hparam_combo}. Training steps = {train_steps},'
-                  f' validation steps = {val_steps}, callbacks = {callbacks}')
+                  f' validation steps = {val_steps}.')
             start = time.time()
             declutr.fit(x=dataset_train, epochs=1, callbacks=callbacks, validation_data=dataset_val,
                         steps_per_epoch=train_steps, validation_steps=val_steps)
