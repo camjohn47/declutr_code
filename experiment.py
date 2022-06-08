@@ -23,11 +23,7 @@ class Experiment(abc.ABC):
 
         # Constants to include in experiment id.
         self.add_constants_to_id = add_constants_to_id
-        exists_unlisted_constant = lambda constants: any([constant not in self.constant_arg_vals for constant in constants])
-
-        # Checks if there's any requested constant to include in experiment id that's not specified in <constant_arg_vals>.
-        if add_constants_to_id and exists_unlisted_constant(self.add_constants_to_id):
-            raise ValueError("ERROR: Constants in add constants to id that aren't present in constant arg vals!")
+        self.check_constants()
 
         #TODO: Config building and saving in experiment directory.
         self.build_config()
@@ -36,6 +32,13 @@ class Experiment(abc.ABC):
     @abstractmethod
     def run(self):
         pass
+
+    def check_constants(self):
+        exists_unlisted_constant = lambda constants: any([constant not in self.constant_arg_vals for constant in constants])
+
+        # Checks if there's any requested constant to include in experiment id that's not specified in <constant_arg_vals>.
+        if self.add_constants_to_id and exists_unlisted_constant(self.add_constants_to_id):
+            raise ValueError("ERROR: Constants in add constants to id that aren't present in constant arg vals!")
 
     def collect_models_results(self):
         pass
