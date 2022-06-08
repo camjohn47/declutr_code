@@ -12,6 +12,9 @@ import sys
 # Default for histogram comparison.
 XAXIS_RANGE = [0, 1000]
 
+# Color of straight lines added to plot.
+LINE_COLOR = "yellow"
+
 def get_default_xrange(series, percentile=.9):
     xmax = series.quantile(q=percentile)
     x_range = [0, int(xmax)]
@@ -57,7 +60,7 @@ def make_histogram_comparison(hist_vals, rows, cols, subplot_titles=[], subplot_
         fig.add_trace(go.Histogram(x=hist_vals[i], histfunc=histfunc, histnorm=histnorm, xbins=xbins), row=row, col=col)
         fig.update_xaxes(subplot_xaxis[i], row=row, col=col, range=xaxis_range)
         fig.update_yaxes(subplot_yaxis[i], row=row, col=col, range=yaxis_range)
-        fig.add_vline(min_doc_size, row=row, col=col)
+        fig.add_vline(min_doc_size, row=row, col=col, line_color=LINE_COLOR)
 
     fig.update_layout(layout_args, showlegend=False)
     return fig
