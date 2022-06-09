@@ -48,8 +48,8 @@ class DeClutrTrainer(SequenceProcessor):
     DECLUTR_MODEL_CLASSES = dict(declutr_contrastive=DeClutrContrastive, declutr_masked_language=DeclutrMaskedLanguage)
     DECLUR_MODEL_LOSSES = dict(declutr_contrastive=ContrastiveLoss, declutr_masked_language=MaskedMethodLoss)
     code_parser_args = dict(programming_language="all")
-    SUBPLOT_XAXIS = [dict(title_text="Script Size (Tokens)") for i in range(2)]
-    SUBPLOT_YAXIS = [dict(title_text='Frequency') for i in range(2)]
+    SUBPLOT_XAXIS = [dict(title_text="Token Count") for i in range(2)]
+    SUBPLOT_YAXIS = [dict(title_text='Scripts') for i in range(2)]
     LAYOUT_ARGS = dict(title_text="Document Size Distribution Before and After Filter", title_x=0.5)
     XAXIS_RANGE = [0, 5000]
     models_dir = "models"
@@ -335,7 +335,7 @@ class DeClutrTrainer(SequenceProcessor):
         # Make a side by side comparison of the document size distribution before and after filtering.
         print(f'UPDATE: Making before and after document size histogram. ')
         hist_vals = [document_sizes_before, document_sizes_after]
-        subplot_titles = [f"Before Filter, {len(hist_vals[0])} Scripts", f"After Filter, {len(hist_vals[1])} Scripts"]
+        subplot_titles = [f"Before Filter ({len(hist_vals[0])} Scripts)", f"After Filter ({len(hist_vals[1])} Scripts)"]
         xbins = dict(start=0, end=np.max(document_sizes_after), size=self.min_document_length)
         yaxis_range = [0, self.get_max_bin_height(hist_vals, bin_width=self.min_document_length)]
 
