@@ -101,6 +101,10 @@ class SequenceProcessor():
 
         self.animate_batch_prep = animate_batch_prep
 
+        # Indicates whether a pretrained tokenizer was found. Updated during tokenizer search. If found and loaded,
+        # tokenization fitting will be skipped by default (this can take a few hours on CodeSearch dataset).
+        self.loaded_pretrained_tokenizer = False
+
     def initialize_tokenizer(self):
         # If pre-trained tokenizer is specified, the type and tokenizer itself must be provided.
         if self.use_pretrained_tokenizer:
@@ -164,33 +168,18 @@ class SequenceProcessor():
         return tokenizer_path
 
     def search_for_tokenizer(self, text_column):
-        tokenizer_path = self.get_tokenizer_path(text_column)
-        tokenizer = None
-
-        if os.path.exists(tokenizer_path):
-            print(f"UPDATE: Found tokenizer path {tokenizer_path}.")
-            with open(tokenizer_path, "r") as file:
-                try:
-                    tokenizer_str = file.read()
-                    tokenizer = tokenizer_from_json(tokenizer_str)
-                except:
-                    print(f"WARNING: Failed to load JSON Keras tokenizer found in {tokenizer_path}.")
-
-        if not tokenizer:
-            tokenizer = self.initialize_tokenizer()
-
-        return tokenizer
-
-    def search_for_tokenizer_pickle(self, text_column):
         tokenizer_path = self.get_tokenizer_path(text_column).replace(".json", ".pickle")
         tokenizer = None
 
         if os.path.exists(tokenizer_path):
             print(f"UPDATE: Found tokenizer path {tokenizer_path}.")
+
             with open(tokenizer_path, "rb") as file:
                 try:
                     tokenizer_str = file.read()
                     tokenizer = pickle.loads(tokenizer_str)
+                    self.loaded_pretrained_tokenizer = True
+                    print(f"UPDATE: Successfully loaded found tokenizer.")
                 except:
                     print(f"WARNING: Failed to load JSON Keras tokenizer found in {tokenizer_path}.")
 
@@ -211,7 +200,11 @@ class SequenceProcessor():
 
     def fit_tokenizer_in_chunks(self, document_df, text_column, chunk_size=1.0e3):
         if not self.tokenizer:
-            self.tokenizer = self.search_for_tokenizer_pickle(text_column)
+            self.tokenizer = self.search_for_tokenizer(text_column)
+
+        if self.loaded_pretrained_tokenizer:
+            print(f"UPDATE: Skipping tokenizer fitting since a pre-trained tokenier was found and loaded.")
+            return
 
         document_count = len(document_df)
         chunk_count = math.ceil(document_count / chunk_size)
