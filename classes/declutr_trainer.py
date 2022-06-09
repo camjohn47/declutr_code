@@ -255,7 +255,7 @@ class DeClutrTrainer(SequenceProcessor):
         tensorboard = TensorBoard(log_dir=self.tensorboard_dir, write_images=True, update_freq='batch', embeddings_freq=1,
                                   histogram_freq=1000)
         checkpoint = ModelCheckpoint(filepath=os.path.join(self.model_dir, 'checkpoint'))
-        callbacks = [csv_logger, tensorboard, checkpoint]
+        callbacks = [csv_logger, checkpoint]
 
         if hparam_tuning:
             if not hparam_vals:

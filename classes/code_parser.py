@@ -1,5 +1,6 @@
 from glob import glob
 import os
+from os.path import join
 import sys
 
 import json
