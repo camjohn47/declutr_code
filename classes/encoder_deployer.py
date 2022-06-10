@@ -219,4 +219,13 @@ class EncoderDeployer():
         self.update_cache(uncached_feats, uncached_keys)
         return feature_matrix
 
+    def get_training_data(self):
+        training_data_path = join(self.model_dir, "training_data.csv")
+
+        if not exists(training_data_path):
+            raise FileNotFoundError(f"ERROR: Training data in {training_data_path} not found!")
+
+        training_data = read_csv(training_data_path)
+        return training_data
+
 
