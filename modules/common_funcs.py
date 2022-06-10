@@ -149,6 +149,10 @@ def convert_tokens_to_int(document_df):
     document_df["document_tokens"] = document_df.apply(lambda row: [int(token) for token in literal_eval(row["document_tokens"])], axis=1)
     return document_df
 
+def drop_nans(df, columns):
+    df.dropna(subset=columns, inplace=True)
+    return df
+
 def get_code_df(sampling=.1, use_cached=True):
     '''
     Return a code-based dataframe with natural language description and script columns.
@@ -160,6 +164,7 @@ def get_code_df(sampling=.1, use_cached=True):
         code_parser = CodeParser(programming_language="all")
         code_df = code_parser.code_directory_to_df(os.getcwd())
 
+    code_df = drop_nans(code_df, columns=["code", "docstring"])
     code_df = code_df.sample(frac=sampling)
     code_df = convert_tokens_to_int(code_df)
     return code_df
