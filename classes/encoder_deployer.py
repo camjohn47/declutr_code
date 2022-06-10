@@ -7,8 +7,8 @@ from tensorflow import RaggedTensor
 import numpy as np
 from numpy import squeeze
 
-from sequence_models import DeClutrContrastive, TransformerEncoder, RNNEncoder
-from common_funcs import get_sequence_processor, run_with_time, cast_tf_tokens, tokenize_df_wrapper, drop_nan_text, set_path_to_main, \
+from sequence_models import TransformerEncoder, RNNEncoder
+from modules.common_funcs import get_sequence_processor, run_with_time, cast_tf_tokens, tokenize_df_wrapper, drop_nan_text, set_path_to_main, \
                          make_nested_dirs
 
 from os.path import join, exists

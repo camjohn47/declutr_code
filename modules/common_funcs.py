@@ -2,6 +2,7 @@ import re
 import time
 
 import os
+from os.path import join, dirname
 from ast import literal_eval
 
 import dill
@@ -10,7 +11,7 @@ import tensorflow as tf
 
 import pandas as pd
 
-from code_parser import CodeParser
+from classes.code_parser import CodeParser
 
 from sklearn.decomposition import PCA
 
@@ -47,11 +48,12 @@ def set_path_to_main(path):
     curr_dir_head, curr_dir_tail = os.path.split(curr_dir)
 
     # Shift up in the working directory tree if not currently in main directory.
-    full_execution_path = os.path.join(curr_dir, path) if curr_dir_tail == "declutr_code" else os.path.join(curr_dir_head, path)
+    full_execution_path = join(curr_dir, path) if curr_dir_tail == "declutr_code" else os.path.join(curr_dir_head, path)
 
     return full_execution_path
 
-TRAINING_DF_PATH = os.path.join("processed_data", "training_data.csv")
+MAIN_DIR = dirname(os.getcwd())
+TRAINING_DF_PATH = join(MAIN_DIR, "processed_data", "training_data.csv")
 TRAINING_DF_PATH = set_path_to_main(TRAINING_DF_PATH)
 
 def find_code_df_methods(code_df):
@@ -101,7 +103,7 @@ def have_equal_shapes(tensor_a, tensor_b):
         return False
 
 def get_sequence_processor(model_dir, suffix="processor.dill"):
-    processor_path = os.path.join(model_dir, suffix)
+    processor_path = os.path.join(MAIN_DIR, model_dir, suffix)
 
     if not os.path.exists(processor_path):
         print(f"WARNING: Sequence processor path {processor_path} doesn't exist!")

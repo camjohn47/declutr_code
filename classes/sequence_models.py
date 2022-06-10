@@ -3,7 +3,7 @@ import os
 
 from pathlib import Path
 
-from common_funcs import get_rank, have_equal_shapes
+from modules.common_funcs import get_rank, have_equal_shapes
 from tensor_visualizer import TensorVisualizer
 
 import tensorflow as tf

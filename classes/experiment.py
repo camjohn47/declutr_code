@@ -2,14 +2,14 @@ import abc
 from abc import abstractmethod
 import sys
 import os
-sys.path.append(os.path.join("..", ".."))
-from common_funcs import get_argparse_name, mix_lists
+sys.path.append(os.path.join("../..", ".."))
+from modules.common_funcs import get_argparse_name, mix_lists
 
 import re
 
 class Experiment(abc.ABC):
     EXPERIMENTS_DIRECTORY = "experiments"
-    MODELS_DIR = "models"
+    MODELS_DIR = "../models"
 
     def __int__(self, variable_arg, variable_domain, constant_arg_vals, script, models_dir=None, id_template="VARIABLE=VALUE",
                 add_constants_to_id=None):

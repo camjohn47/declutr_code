@@ -1,12 +1,9 @@
-from tensorflow.keras.models import load_model
 from tensorflow.keras.callbacks import Callback
 
 import os
-import sys
 
 import tensorflow as tf
-import plotly.express as px
-from visuals import make_3d_scatter, process_fig
+from modules.visuals import make_3d_scatter, process_fig
 
 import pandas as pd
 from pathlib import Path

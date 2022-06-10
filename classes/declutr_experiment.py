@@ -1,5 +1,5 @@
 from experiment import Experiment
-from common_funcs import get_argparse_name, mix_lists, make_path_directories
+from modules.common_funcs import get_argparse_name
 
 import subprocess
 
@@ -14,7 +14,7 @@ from plotly.express import line
 
 from model_organizer import ModelOrganizer
 from declutr_trainer import DeClutrTrainer
-from visuals import process_fig
+from modules.visuals import process_fig
 
 import re
 
@@ -55,7 +55,7 @@ class DeclutrExperiment(Experiment):
         self.save_config()
 
     def build_tensorboard_directory(self, model_id):
-        tensorboard_directory = os.path.join(self.experiment_directory, "models", model_id, "tensorboard_logs")
+        tensorboard_directory = os.path.join(self.experiment_directory, "../models", model_id, "tensorboard_logs")
         Path(tensorboard_directory).mkdir(parents=True, exist_ok=True)
         return tensorboard_directory
 

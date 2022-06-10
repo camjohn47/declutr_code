@@ -4,7 +4,7 @@ from dash.dcc import Graph
 from dash.html import Button, Div, H1
 from dash.dependencies import Input, Output
 
-from learning_visualizer import LearningVisualizer
+from classes.learning_visualizer import LearningVisualizer
 import re
 
 class ProcessingApp():

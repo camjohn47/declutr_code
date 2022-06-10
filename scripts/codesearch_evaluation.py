@@ -1,9 +1,8 @@
 import os
 
-from common_funcs import get_code_df, process_df
-from retrieval_models import QueryEncoderRetriever
-from custom_arg_parser import CustomArgParser
-
+from modules.common_funcs import get_code_df, process_df
+from classes.retrieval_models import QueryEncoderRetriever
+from classes.custom_arg_parser import CustomArgParser
 
 # ARGUMENTS
 sampling_args = ["-s", "--sampling", dict(required=False, default=1, help="Fraction of scripts to use.")]
@@ -27,7 +26,7 @@ search_results = retriever.transform(code_df)
 
 def get_results_path():
     if experiment_id:
-        results_path = os.path.join("experiments", experiment_id, "codesearch_results.csv")
+        results_path = os.path.join("../experiments", experiment_id, "codesearch_results.csv")
     else:
         results_path = os.path.join("results", f"codesearch_query={query_encoder_id}_script={script_encoder_id}.csv")
     return results_path

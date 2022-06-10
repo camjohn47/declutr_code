@@ -9,6 +9,8 @@ In addition to the standard git clone command, you need to add the recursive fla
 ```bash
 git clone https://github.com/camjohn47/declutr_code --recursive
 ```
+Then, please run the "setup.py" script in the main directory to set up path dependencies. After doing this, you should be
+able to run any script in the "scripts" directory. 
 
 **This project is new and still in active development**. Note that you don't have to use CodeSearchNet data. The CodeParser can be used to parse through scripts in any accessible directory and organize them for training data. For more info on how to get started, please check out the notebooks! 
 

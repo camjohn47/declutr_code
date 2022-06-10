@@ -1,11 +1,11 @@
-from encoder_deployer import EncoderDeployer
+from classes.encoder_deployer import EncoderDeployer
 
 from scipy.spatial import distance_matrix
 import numpy as np
 
 from tensorflow.keras.utils import Progbar
 
-from common_funcs import reduce_matrix
+from modules.common_funcs import reduce_matrix
 
 from pandas import DataFrame, read_csv, concat
 import re

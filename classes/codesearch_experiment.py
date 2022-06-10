@@ -1,5 +1,5 @@
 from experiment import Experiment
-from common_funcs import get_code_df, process_fig
+from modules.common_funcs import get_code_df, process_fig
 from retrieval_models import QueryEncoderRetriever
 
 from pandas import DataFrame, concat

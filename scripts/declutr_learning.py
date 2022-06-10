@@ -1,8 +1,8 @@
 import os
 from os.path import join
 
-from declutr_trainer import DeClutrTrainer
-from code_parser import CodeParser
+from classes.declutr_trainer import DeClutrTrainer
+from classes.code_parser import CodeParser
 
 import argparse
 
@@ -51,7 +51,7 @@ def get_encoder_config(args):
 
 def make_models_dir(args):
     experiment_id = args["experiment_id"]
-    models_dir = join("experiments", experiment_id, "models") if experiment_id else "models"
+    models_dir = join("../experiments", experiment_id, "models") if experiment_id else "models"
     return models_dir
 
 def get_args():

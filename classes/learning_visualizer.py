@@ -4,7 +4,7 @@ import os
 
 from sequence_processor import SequenceProcessor
 from tensorflow.keras.preprocessing.sequence import pad_sequences
-from common_funcs import process_fig, get_code_df, drop_nan_text
+from modules.common_funcs import process_fig, get_code_df, drop_nan_text
 
 from plotly.graph_objects import Scatter3d, Figure, Scatter
 from plotly.subplots import make_subplots
@@ -393,7 +393,7 @@ class LearningVisualizer:
 
     def build_processing_visuals(self):
         for i, processing_visuals in enumerate(self.generate_processing_visuals()):
-            fig_path = os.path.join("animations", f"batch_processing_visual_{i + 1}.html")
+            fig_path = os.path.join("../animations", f"batch_processing_visual_{i + 1}.html")
             batch_processing_fig = processing_visuals["fig"]
             process_fig(batch_processing_fig, fig_path)
 

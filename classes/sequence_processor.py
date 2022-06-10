@@ -1,14 +1,13 @@
 import sys
 import os
 
-import json
 import pickle
 
-from tensorflow.keras.preprocessing.text import Tokenizer, tokenizer_from_json
+from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 import tensorflow as tf
 from tensorflow.data import Dataset
-from tensorflow_probability.python.distributions import Beta, Sample
+from tensorflow_probability.python.distributions import Beta
 from tensorflow.keras.utils import Progbar
 from tensorflow import type_spec_from_value
 
@@ -17,7 +16,7 @@ import random
 from functools import partial
 from itertools import chain
 
-from common_funcs import find_code_df_methods, make_path_directories
+from modules.common_funcs import find_code_df_methods, make_path_directories
 
 import math
 
@@ -40,7 +39,7 @@ class SequenceProcessor():
     positive_sampling_args = dict(concentration1=2, concentration0=4)
 
     # Where to save tokenizers and search for pre-trained ones.
-    TOKENIZER_DIR = "tokenizers"
+    TOKENIZER_DIR = "../tokenizers"
 
     ANIMATION_INPUT_KEYS = ["document_texts", "anchor_index", "anchor_start", "anchor_end"]
 
