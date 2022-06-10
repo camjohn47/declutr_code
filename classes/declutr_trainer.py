@@ -10,13 +10,13 @@ from tensorflow.data.experimental import cardinality
 from tensorflow.keras.models import save_model
 from tensorflow.keras.losses import CategoricalCrossentropy as cross_entropy
 
-from common_funcs import run_with_time, drop_nan_text
-from code_parser import CodeParser
+from modules.common_funcs import run_with_time, drop_nan_text
+from classes.code_parser import CodeParser
 from sequence_models import DeClutrContrastive, DeclutrMaskedLanguage
 from sequence_processor import SequenceProcessor
-from loss_functions import ContrastiveLoss, MaskedMethodLoss
+from modules.loss_functions import ContrastiveLoss, MaskedMethodLoss
 from tensor_visualizer import TensorVisualizer, VisualizerCallBack
-from visuals import make_histogram, process_fig, make_histogram_comparison
+from modules.visuals import make_histogram, process_fig, make_histogram_comparison
 
 from itertools import product
 
@@ -52,8 +52,8 @@ class DeClutrTrainer(SequenceProcessor):
     SUBPLOT_YAXIS = [dict(title_text='Scripts') for i in range(2)]
     LAYOUT_ARGS = dict(title_text="Document Size Distribution Before and After Filter", title_x=0.5)
     XAXIS_RANGE = [0, 5000]
-    models_dir = "models"
-    tensorboard_dir = "tensorboard_logs"
+    models_dir = "../models"
+    tensorboard_dir = "../tensorboard_logs"
 
     def __init__(self, sequence_processor_args={}, code_parser_args={}, chunk_size=1000, epoch_count=3, train_split=.75,
                  metrics=[], declutr_model="declutr_contrastive", encoder_model='lstm', save_format="tf", models_dir=None,
@@ -174,7 +174,7 @@ class DeClutrTrainer(SequenceProcessor):
         declutr_args["visualize_tensors"] = self.visualize_tensors
 
         # If positional encodings are used for Transformer, provide sequence length.
-        if declutr_args["encoder_config"]["use_positional_encodings"]:
+        if "use_positional_encodings" in declutr_args["encoder_config"] and declutr_args["encoder_config"]:
             declutr_args["encoder_config"]["sequence_length"] = self.max_anchor_length
 
         return declutr_args
