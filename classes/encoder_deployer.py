@@ -219,6 +219,9 @@ class EncoderDeployer():
         self.update_cache(uncached_feats, uncached_keys)
         return feature_matrix
 
+    #TODO: Improve training data scheme by i) creating a dir,
+    #                                      ii) checking and filtering for redundancies during training,
+    #                                     iii) join training data into single csv during calls like this.
     def get_training_data(self):
         training_data_path = join(self.model_dir, "training_data.csv")
 

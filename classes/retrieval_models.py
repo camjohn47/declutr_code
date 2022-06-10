@@ -182,20 +182,5 @@ class QueryEncoderRetriever():
         self.update_cached_queries(results_df)
         return results_df
 
-    def get_encoder_training_data(self, encoder_type):
-
-
-        script_model_dir = self.script_deployer.model_dir if encoder_type == "script" else self.query_deployer.model_dir
-        #TODO: Improve training data scheme by i) creating a dir,
-        #                                      ii) checking and filtering for redundancies during training,
-        #                                     iii) join training data into single csv during calls like this.
-        training_data_path = join(script_model_dir, "training_data.csv")
-
-        if not exists(training_data_path):
-            raise FileNotFoundError(f"ERROR: Training data in {training_data_path} not found!")
-
-        training_data = read_csv(training_data_path)
-        return training_data
-
 
 #%%
