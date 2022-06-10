@@ -128,6 +128,26 @@ class QueryEncoderRetriever():
 
         return results_df
 
+    def restrict_to_encoder_training_data(self, code_df, encoder_type):
+        if encoder_type not in ["query", "script"]:
+            raise ValueError(f"ERROR: Requested encoder type = {encoder_type} not 'query' nor 'script'.")
+
+        training_data = self.script_deployer.get_training_data() if encoder_type == "script"\
+                           else self.query_deployer.get_training_data()
+        filter_col = "code" if encoder_type == "script" else "docstring"
+        training_keys = set(training_data[filter_col].unique())
+        code_df = code_df[code_df[filter_col].isin(training_keys)]
+        return code_df
+
+    def preprocess(self, code_df, filter_queries, filter_scripts):
+        # Restrict scripts and queries to encoder's training data if specified.
+        if filter_queries:
+            code_df = self.restrict_to_encoder_training_data(code_df, encoder_type="query")
+        if filter_scripts:
+            code_df = self.restrict_to_encoder_training_data(code_df, encoder_type="script")
+
+        return code_df
+
     def transform(self, code_df, attributes=["language"]):
         '''
         Inputs
@@ -138,10 +158,8 @@ class QueryEncoderRetriever():
                                 other attributes.
         '''
 
-        code_df.dropna(subset=["code"], inplace=True)
-        code_df.dropna(subset=["docstring"], inplace=True)
-        scripts = code_df["code"].values
         queries = code_df["docstring"].values
+        scripts = code_df["code"].values
 
         # Use encoder deployers to encode NL queries and PL scripts.
         query_encodings = self.query_deployer.make_feature_matrix(code_df)
@@ -164,6 +182,20 @@ class QueryEncoderRetriever():
         self.update_cached_queries(results_df)
         return results_df
 
+    def get_encoder_training_data(self, encoder_type):
+
+
+        script_model_dir = self.script_deployer.model_dir if encoder_type == "script" else self.query_deployer.model_dir
+        #TODO: Improve training data scheme by i) creating a dir,
+        #                                      ii) checking and filtering for redundancies during training,
+        #                                     iii) join training data into single csv during calls like this.
+        training_data_path = join(script_model_dir, "training_data.csv")
+
+        if not exists(training_data_path):
+            raise FileNotFoundError(f"ERROR: Training data in {training_data_path} not found!")
+
+        training_data = read_csv(training_data_path)
+        return training_data
 
 
 #%%
