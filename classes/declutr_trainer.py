@@ -174,7 +174,7 @@ class DeClutrTrainer(SequenceProcessor):
         declutr_args["visualize_tensors"] = self.visualize_tensors
 
         # If positional encodings are used for Transformer, provide sequence length.
-        if "use_positional_encodings" in declutr_args["encoder_config"] and declutr_args["encoder_config"]:
+        if "use_positional_encodings" in declutr_args["encoder_config"] and declutr_args["encoder_config"]["use_positional_encodings"]:
             declutr_args["encoder_config"]["sequence_length"] = self.max_anchor_length
 
         return declutr_args

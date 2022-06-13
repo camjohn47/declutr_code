@@ -21,10 +21,7 @@ class EncoderDeployer():
     CACHED_FEATURES_PATH = "cached_<TEXT_COLUMN>_features.csv"
     CACHED_FEATURE_COL_TEMP = "cached_feature_<DIM>"
 
-    def __init__(self, model_id, text_column, models_dir="models", output_label=None, encoder_model=None):
-        if not encoder_model:
-            raise ValueError(f"ERROR: No encoder model provided to EncoderDeployer.")
-
+    def __init__(self, model_id, text_column, encoder_model, models_dir="models", output_label=None):
         self.model_id = model_id
         self.models_dir = models_dir
         self.model_dir = join(self.models_dir, self.model_id)
@@ -231,4 +228,5 @@ class EncoderDeployer():
         training_data = read_csv(training_data_path)
         return training_data
 
-
+if __name__ == "__main__":
+    encoder_deployer = EncoderDeployer(model_id="test", text_column="code", encoder_model="rnn")
