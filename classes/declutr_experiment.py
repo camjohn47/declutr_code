@@ -40,19 +40,7 @@ class DeclutrExperiment(Experiment):
         self.models_dir = models_dir if models_dir else self.models_dir
         self.post_query_script = self.get_full_execution_path("codesearch_evaluation.py")
         self.add_constants_to_id = add_constants_to_id
-        self.initialize_experiment_directory()
-
-    def initialize_experiment_directory(self):
-        self.experiment_id = self.build_experiment_id()
-        self.experiment_directory = os.path.join(self.EXPERIMENTS_DIRECTORY, self.experiment_id)
-
-        if os.path.exists(self.experiment_directory):
-            print(f"WARNING: Experiment directory already exists in {self.experiment_directory}. Removing the existing data. ")
-            shutil.rmtree(self.experiment_directory)
-
-        Path(self.experiment_directory).mkdir(parents=True, exist_ok=True)
-        self.build_config()
-        self.save_config()
+        self.initialize_experiment_directory(experiment_class="DeClutr")
 
     def build_tensorboard_directory(self, model_id):
         tensorboard_directory = os.path.join(self.experiment_directory, "../models", model_id, "tensorboard_logs")

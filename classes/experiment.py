@@ -3,12 +3,15 @@ from abc import abstractmethod
 import sys
 import os
 sys.path.append(os.path.join("../..", ".."))
-from modules.common_funcs import get_argparse_name, mix_lists
+from modules.common_funcs import get_argparse_name, mix_lists, set_path_to_main
 
 import re
 
+import shutil
+from pathlib import Path
+
 class Experiment(abc.ABC):
-    EXPERIMENTS_DIRECTORY = "experiments"
+    EXPERIMENTS_DIRECTORY = set_path_to_main("experiments")
     MODELS_DIR = "../models"
 
     def __int__(self, variable_arg, variable_domain, constant_arg_vals, script, models_dir=None, id_template="VARIABLE=VALUE",
@@ -42,6 +45,14 @@ class Experiment(abc.ABC):
 
     def collect_models_results(self):
         pass
+
+    def initialize_experiment_directory(self, experiment_class):
+        self.experiment_id = self.build_experiment_id()
+        self.experiment_directory = os.path.join(self.EXPERIMENTS_DIRECTORY, experiment_class, self.experiment_id)
+        print(f"UPDATE: Building Experiment directory in {self.experiment_directory}.")
+        Path(self.experiment_directory).mkdir(parents=True, exist_ok=True)
+        self.build_config()
+        self.save_config()
 
     @abstractmethod
     def build_config(self):
