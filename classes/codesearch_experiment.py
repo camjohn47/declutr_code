@@ -42,15 +42,14 @@ class CodeSearchExperiment(Experiment):
         self.accuracy_fig_title = f"Top K Accuracy for {self.variable_arg}"
         self.add_constants_to_id = add_constants_to_id
         self.experiment_id = self.build_experiment_id()
-        self.experiment_directory = join(self.EXPERIMENTS_DIRECTORY, self.experiment_id)
+        self.retrieved_docs = retrieved_docs
+        self.initialize_experiment_directory(experiment_class="CodeSearch")
         self.results_dir = join(self.experiment_directory, "results")
-        Path(self.results_dir).mkdir(exist_ok=True, parents=True)
 
         # Build paths in results_dir for saving specific visuals and CSV's.
         self.accuracy_fig_path = join(self.results_dir, "top_<K>_accuracy_fig.html")
         self.top_k_line_path = join(self.results_dir, "top_k_accuracy_line.html")
         self.results_csv_path = join(self.results_dir, "codesearch")
-        self.retrieved_docs = retrieved_docs
         self.retrieved_doc_range = list(range(1, self.retrieved_docs + 1))
         self.build_config()
         self.save_config()
@@ -65,7 +64,7 @@ class CodeSearchExperiment(Experiment):
         with open(self.config_path, "w") as file:
             file.write(str(self.config))
 
-    def run(self):
+    def run(self, filter_args={}):
         '''
         AFTER RUNNING ABOVE EXPERIMENT: Use different DeClutr models for code retrieval task.
         '''
@@ -77,6 +76,7 @@ class CodeSearchExperiment(Experiment):
                                   "retrieved_docs": self.retrieved_docs}
             query_encoder_retriever = QueryEncoderRetriever(**query_encoder_args)
             code_df = get_code_df(sampling=self.sampling)
+            code_df = query_encoder_retriever.preprocess(code_df, **filter_args)
             code_df = query_encoder_retriever.transform(code_df)
             code_df[self.variable_arg] = [variable_value] * len(code_df)
             results_df = concat([results_df, code_df])
@@ -126,8 +126,8 @@ class CodeSearchExperiment(Experiment):
 
         process_fig(top_k_fig, self.top_k_line_path)
 
-    def run_and_analyze(self):
-        results_df = self.run()
+    def run_and_analyze(self, filter_args={}):
+        results_df = self.run(filter_args=filter_args)
         analysis_rows = []
 
         for variable_val, variable_df in results_df.groupby(self.variable_arg):
