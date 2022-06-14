@@ -34,6 +34,7 @@ from pandas import DataFrame
 tf.executing_eagerly()
 
 # Make sure Tensorflow can find your GPU and is using it properly.
+print(f"UPDATE: Tensorflow physical devices shown below: ")
 tf.config.list_physical_devices()
 
 class DeClutrTrainer(SequenceProcessor):

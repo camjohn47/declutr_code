@@ -153,7 +153,7 @@ def drop_nans(df, columns):
     df.dropna(subset=columns, inplace=True)
     return df
 
-def get_code_df(sampling=.1, use_cached=True):
+def get_code_df(sampling=1, use_cached=True):
     '''
     Return a code-based dataframe with natural language description and script columns.
     '''

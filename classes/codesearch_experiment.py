@@ -88,7 +88,7 @@ class CodeSearchExperiment(Experiment):
     def calc_top_k_accuracy(self, query_df, top_k):
         '''
         Outputs
-        % of docstrings whose script was in top k retrieved scripts.
+        % of docstrings whose script was in <top_k> retrieved scripts.
         '''
 
         answer_in_top_k = lambda row: row[self.QUERY_COL] in row[self.ANSWER_COL][:top_k]
