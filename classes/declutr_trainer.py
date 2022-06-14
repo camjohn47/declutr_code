@@ -1,4 +1,4 @@
-import os
+from os.path import join
 import sys
 
 import tensorflow as tf
@@ -28,6 +28,8 @@ import math
 import numpy as np
 
 import dill
+
+from pandas import DataFrame
 
 tf.executing_eagerly()
 
@@ -114,7 +116,7 @@ class DeClutrTrainer(SequenceProcessor):
     def make_programming_language_hist(self, code_df):
         layout_args = dict(title_text="Programming Language Distribution, Train Subset", title_x=0.5)
         hist = make_histogram(code_df, column="language", layout_args=layout_args)
-        path = os.path.join(self.model_dir, self.model_id, "programming_language_histogram.html")
+        path = join(self.model_dir, self.model_id, "programming_language_histogram.html")
         process_fig(fig=hist, path=path)
 
     def start_training_from_directory(self, code_directory, declutr_args={}):
@@ -152,7 +154,7 @@ class DeClutrTrainer(SequenceProcessor):
             sys.exit(1)
 
         serialized_self = dill.dumps(self)
-        self.path = os.path.join(self.model_dir, "processor.dill")
+        self.path = join(self.model_dir, "processor.dill")
 
         with open(self.path, "wb") as file:
             print(f'UPDATE: Saving DeClutrTrainer to {self.path}.')
@@ -185,13 +187,15 @@ class DeClutrTrainer(SequenceProcessor):
         self.model_path = self.model_dir
 
         if self.save_format == 'h5':
-            self.model_path = os.path.join(self.model_path, "declutr_model.h5")
+            self.model_path = join(self.model_path, "declutr_model.h5")
 
-        self.document_length_hist_path = os.path.join(self.model_dir, "document_length_histogram.html")
+        self.document_length_hist_path = join(self.model_dir, "document_length_histogram.html")
+        self.time_stats_path = join(self.model_dir, "time_stats.csv")
+        self.time_stats_rows = []
 
     def save_encoder(self, model):
-        self.encoder_path = os.path.join(self.model_dir, "encoder")
-        self.encoder_path = os.path.join(self.encoder_path, ".h5") if self.save_format == 'h5' else self.encoder_path
+        self.encoder_path = join(self.model_dir, "encoder")
+        self.encoder_path = join(self.encoder_path, ".h5") if self.save_format == 'h5' else self.encoder_path
         encoder = model.encoder
         print(f"UPDATE: Saving encoder to {self.encoder_path}.")
         save_model(model=encoder, filepath=self.encoder_path, save_format=self.save_format)
@@ -250,11 +254,11 @@ class DeClutrTrainer(SequenceProcessor):
 
         # Set CSV log directory to be chunk, epoch dependent to avoid overwriting when training over
         # different chunks and epochs.
-        log_path = os.path.join(self.log_dir, 'fit_log.csv')
+        log_path = join(self.chunk_dir, 'fit_log.csv')
         csv_logger = CSVLogger(filename=log_path, append=True)
         tensorboard = TensorBoard(log_dir=self.tensorboard_dir, write_images=True, update_freq='batch', embeddings_freq=1,
                                   histogram_freq=1000)
-        checkpoint = ModelCheckpoint(filepath=os.path.join(self.model_dir, 'checkpoint'))
+        checkpoint = ModelCheckpoint(filepath=join(self.model_dir, 'checkpoint'))
         callbacks = [csv_logger, checkpoint]
 
         if hparam_tuning:
@@ -286,14 +290,21 @@ class DeClutrTrainer(SequenceProcessor):
             start = time.time()
             declutr.fit(x=dataset_train, epochs=1, callbacks=callbacks, validation_data=dataset_val,
                         steps_per_epoch=train_steps, validation_steps=val_steps)
-            print(f'UPDATE: Train time = {time.time() - start}.')
-            print(f'UPDATE: Saving full model to {self.model_path}.')
+            train_time = time.time() - start
+            print(f'UPDATE: Train time for chunk = {self.chunk}, epoch = {self.epoch}: {train_time}. Saving full model'
+                  f' to {self.model_path}.')
             save_model(declutr, filepath=self.model_path, save_format=self.save_format)
             self.save_encoder(declutr)
+            time_stats_row = dict(chunk=self.chunk, epoch=self.epoch, train_steps=train_steps, val_steps=val_steps, time=train_time)
+            self.time_stats_rows.append(time_stats_row)
 
-    def build_fit_directory(self):
-        self.log_dir = os.path.join(self.model_dir, f'chunk_{self.chunk}')
-        Path(self.log_dir).mkdir(parents=True, exist_ok=True)
+    def build_chunk_directory(self, chunk):
+        self.chunk_dir = join(self.model_dir, f'chunk_{chunk}')
+        Path(self.chunk_dir).mkdir(parents=True, exist_ok=True)
+    
+    def save_time_stats(self):
+        time_stats_df = DataFrame(self.time_stats_rows)
+        time_stats_df.to_csv(self.time_stats_path, index=False)
 
     def update_indices(self, chunk, epoch):
         self.chunk = chunk
@@ -358,16 +369,17 @@ class DeClutrTrainer(SequenceProcessor):
         self.chunk_count = math.ceil(len(document_df) / self.chunk_size)
 
         if self.save_training_data:
-            training_data_path = os.path.join(self.model_dir, "training_data.csv")
+            training_data_path = join(self.model_dir, "training_data.csv")
             print(f"UPDATE: Saving training document df to {training_data_path}.")
             document_df.to_csv(training_data_path, index=False)
 
         for chunk, chunk_df in enumerate(self.partition_df(document_df, chunk_size=self.chunk_size)):
+            self.build_chunk_directory(chunk)
+
             for epoch in range(self.epoch_count):
                 print(f'UPDATE: Beginning DeClutr training for chunk {chunk}/{self.chunk_count}, '
                       f'epoch {epoch}, chunk size = {len(chunk_df)}.')
                 self.update_indices(chunk, epoch)
-                self.build_fit_directory()
                 dataset = self.get_dataset(chunk_df)
                 self.batch_count = cardinality(dataset) if cardinality(dataset) != tf.data.experimental.UNKNOWN_CARDINALITY\
                                    else self.get_batch_count(chunk_df)
@@ -376,4 +388,7 @@ class DeClutrTrainer(SequenceProcessor):
                 dataset_train = dataset.take(train_steps)
                 dataset_val = dataset.skip(train_steps)
                 self.train_over_grid_search(declutr_model, dataset_train, dataset_val, train_steps, val_steps)
+
+            # Update model's runtime stats after each chunk's training.
+            self.save_time_stats()
 
