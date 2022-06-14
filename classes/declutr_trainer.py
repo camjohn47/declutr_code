@@ -224,7 +224,7 @@ class DeClutrTrainer(SequenceProcessor):
             self.build_method_vocabulary(code_df)
             masked_vocabulary_size = self.get_method_vocab_size()
             print(f'UPDATE: Building MML model with masked vocab size = {masked_vocabulary_size}, '
-                  f'masked index = {self.MASKED_INDEX} declutr args = {declutr_args}.')
+                  f'masked index = {self.MASKED_INDEX}, declutr args = {declutr_args}.')
             declutr_model = self.declutr_model_class(masked_vocabulary_size=masked_vocabulary_size, masked_token=self.MASKED_INDEX,
                                                      **declutr_args)
 

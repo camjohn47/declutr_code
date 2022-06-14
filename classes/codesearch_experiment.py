@@ -118,7 +118,24 @@ class CodeSearchExperiment(Experiment):
         top_k_fig.update_yaxes(title_text="Top K Retrieval Accuracy")
         return top_k_fig
 
-    def build_top_k_accuracy_line(self, analysis_df):
+    def add_baseline_trace_to_top_k(self, top_k_fig, variable_result_count):
+        '''
+        Add a trace describing odds of retrieving script with uniformly sampled documents for each K, each variable.
+        '''
+
+        variable_colors = ["yellow", "green"]
+        variable_ind = 0
+
+        for variable, result_count in variable_result_count.items():
+            random_k_accuracy = [k / result_count for k in self.retrieved_doc_range]
+            baseline_trace = Scatter(x=self.retrieved_doc_range, y=random_k_accuracy, name=f"{variable}_random_guessing",
+                                     marker=dict(color=variable_colors[variable_ind]))
+            top_k_fig.add_trace(baseline_trace)
+            variable_ind += 1
+
+        return top_k_fig
+
+    def build_top_k_accuracy_line(self, analysis_df, variable_result_count):
         top_k_fig = self.get_top_k_fig()
         top_k_cols = [f"top_{k}_accuracy" for k in self.retrieved_doc_range]
         colors = ["red", "blue"]
@@ -132,10 +149,12 @@ class CodeSearchExperiment(Experiment):
             top_k_fig.add_trace(line)
             var_ind += 1
 
+        top_k_fig = self.add_baseline_trace_to_top_k(top_k_fig, variable_result_count=variable_result_count)
         process_fig(top_k_fig, self.top_k_line_path)
 
     def run_and_analyze(self, filter_args={}):
         results_df = self.run(filter_args=filter_args)
+        variable_result_count = {}
         analysis_rows = []
 
         for variable_val, variable_df in results_df.groupby(self.variable_arg):
@@ -147,9 +166,10 @@ class CodeSearchExperiment(Experiment):
 
             df_row = {self.variable_arg: variable_val, **k_accuracies}
             analysis_rows.append(df_row)
+            variable_result_count[variable_val] = len(variable_df)
 
         analysis_df = DataFrame(analysis_rows)
-        self.build_top_k_accuracy_line(analysis_df)
+        self.build_top_k_accuracy_line(analysis_df, variable_result_count)
         return analysis_df
 
 
