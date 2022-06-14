@@ -18,6 +18,7 @@ class CodeSearchExperiment(Experiment):
     QUERY_COL = QueryEncoderRetriever.QUERY_COL
     ANSWER_COL = QueryEncoderRetriever.ANSWER_COL
     EXPERIMENTS_DIRECTORY = join(Experiment.EXPERIMENTS_DIRECTORY, "CodeSearch")
+    top_k_fig_title = "How Often Described Code was in Top K Retrieved Scripts"
 
     def __init__(self, variable_arg, variable_val, variable_domain, constant_arg_vals, sampling=1, add_constants_to_id=None,
                  retrieved_docs=50):
@@ -110,8 +111,15 @@ class CodeSearchExperiment(Experiment):
             accuracy_fig_path = sub(r'<K>', str(k), self.accuracy_fig_path)
             process_fig(accuracy_fig, accuracy_fig_path)
 
-    def build_top_k_accuracy_line(self, analysis_df):
+    def get_top_k_fig(self):
         top_k_fig = Figure()
+        top_k_fig.update_layout(title=dict(text=self.top_k_fig_title, x=0.5))
+        top_k_fig.update_xaxes(title_text="K")
+        top_k_fig.update_yaxes(title_text="Top K Retrieval Accuracy")
+        return top_k_fig
+
+    def build_top_k_accuracy_line(self, analysis_df):
+        top_k_fig = self.get_top_k_fig()
         top_k_cols = [f"top_{k}_accuracy" for k in self.retrieved_doc_range]
         colors = ["red", "blue"]
         var_ind = 0
