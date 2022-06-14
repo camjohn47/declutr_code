@@ -53,7 +53,6 @@ class EncoderDeployer():
     @staticmethod
     def get_encoding_dims(encoder):
         encoder_config = encoder.get_config()
-        print(f"UPDATE: Encoder config = {encoder_config}")
 
         if "value_dim" in encoder_config:
             encoding_dims = encoder_config["value_dim"]
@@ -197,12 +196,10 @@ class EncoderDeployer():
         '''
 
         # Preprocess the df.
-        preprocess_args = dict(df=inputs_df, text_column=self.text_column)
-        inputs_df = run_with_time(drop_nan_text, preprocess_args, "Deployment preprocessing")
+        inputs_df = drop_nan_text(df=inputs_df, text_column=self.text_column)
 
         # Tokenize df.
-        tokenize_args = dict(sequence_processor=self.sequence_processor, document_df=inputs_df, text_column=self.text_column)
-        tokenized_df = run_with_time(tokenize_df_wrapper, tokenize_args, f"Deployment {self.text_column} tokenization")
+        tokenized_df = tokenize_df_wrapper(sequence_processor=self.sequence_processor, document_df=inputs_df, text_column=self.text_column)
         token_sequences = tokenized_df["document_tokens"].values
 
         # Text column values used for caching\looking up features.
