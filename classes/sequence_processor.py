@@ -1,5 +1,6 @@
 import sys
 import os
+from os.path import join
 
 import pickle
 
@@ -19,6 +20,8 @@ from itertools import chain
 from modules.common_funcs import find_code_df_methods, make_path_directories
 
 import math
+
+from pandas import DataFrame, read_csv, concat
 
 class SequenceProcessor():
     '''
@@ -86,19 +89,17 @@ class SequenceProcessor():
         self.LOSS_OBJECTIVE_TO_DATASET_METHOD = dict(declutr_contrastive=self.get_declutr_contrastive_dataset,
                                                      declutr_masked_method=self.get_declutr_mmm_dataset)
         if loss_objective not in self.LOSS_OBJECTIVE_TO_DATASET_METHOD:
-            print(f'ERROR: Loss objective {loss_objective} not in {self.LOSS_OBJECTIVE_TO_DATASET_METHOD}. ')
-            sys.exit(1)
+            raise KeyError(f'ERROR: Loss objective {loss_objective} not found in {self.LOSS_OBJECTIVE_TO_DATASET_METHOD}. ')
 
         self.loss_objective = loss_objective
         self.dataset_method = self.LOSS_OBJECTIVE_TO_DATASET_METHOD[self.loss_objective]
         self.method_vocabulary = None
         self.cardinality_estimate = 0
+        self.animate_batch_prep = animate_batch_prep
 
         # Lambdas for document -> DeClutr sequence index conversion.
         self.map_sequence_to_doc_ind = lambda i: math.floor(i / (2 * self.anchors_per_document * self.num_positive_samples))
         self.map_doc_to_contrasted_ind = lambda i: self.map_sequence_to_doc_ind(i)
-
-        self.animate_batch_prep = animate_batch_prep
 
         # Indicates whether a pretrained tokenizer was found. Updated during tokenizer search. If found and loaded,
         # tokenization fitting will be skipped by default (this can take a few hours on CodeSearch dataset).
@@ -108,11 +109,9 @@ class SequenceProcessor():
         # If pre-trained tokenizer is specified, the type and tokenizer itself must be provided.
         if self.use_pretrained_tokenizer:
             if not self.tokenizer_type:
-                print(f'ERROR: Pretrained tokenizer requested but type unspecified! ')
-                sys.exit(1)
+                raise ValueError(f'ERROR: Pretrained tokenizer requested but type unspecified! ')
             elif not self.pretrained_tokenizer:
-                print(f'ERROR: Pretrained tokenizer requested but no tokenizer provided! ')
-                sys.exit(1)
+               raise ValueError(f'ERROR: Pretrained tokenizer requested but no tokenizer provided! ')
 
             tokenizer = self.pretrained_tokenizer
         # Otherwise, build a new Keras tokenizer.
@@ -197,18 +196,29 @@ class SequenceProcessor():
 
         return document_df
 
-    def fit_tokenizer_in_chunks(self, document_df, text_column, chunk_size=1.0e3):
+    @staticmethod
+    def get_text_vocab_path(text_column, save_progress_dir):
+        text_vocab_path = join(save_progress_dir, f"{text_column}_vocab_progress.csv")
+        return text_vocab_path
+
+    def save_vocab_stats(self, vocab_rows, text_column, save_progress_dir):
+        progress_path = self.get_text_vocab_path(text_column, save_progress_dir)
+        vocab_df = DataFrame(vocab_rows)
+        print(f"UPDATE: SequenceProcessor saving vocab df to {progress_path}.")
+        vocab_df.to_csv(progress_path, index=False)
+
+    def fit_tokenizer_in_chunks(self, document_df, text_column, chunk_size=1.0e3, save_progress_dir=None):
         if not self.tokenizer:
             self.tokenizer = self.search_for_tokenizer(text_column)
-
         if self.loaded_pretrained_tokenizer:
-            print(f"UPDATE: Skipping tokenizer fitting since a pre-trained tokenier was found and loaded.")
+            print(f"UPDATE: Skipping tokenizer fitting since a pre-trained tokenizer was found and loaded.")
             return
 
         document_count = len(document_df)
         chunk_count = math.ceil(document_count / chunk_size)
         print(f'UPDATE: Tokenization on {text_column} chunks in progress.')
         progress_bar = Progbar(target=chunk_count, stateful_metrics=["document_count", "vocabulary_size"])
+        vocab_rows = []
         document_count = 0
 
         for i, document_df_chunk in enumerate(self.partition_df(document_df, chunk_size)):
@@ -217,6 +227,25 @@ class SequenceProcessor():
             document_count += len(document_df_chunk)
             progress_values = [["document_count", document_count], ["vocabulary_size", vocab_size]]
             progress_bar.update(i + 1, values=progress_values)
+            language = "natural" if text_column == "docstring" else "programming"
+            vocab_row = dict(document_count=document_count, vocab_size=vocab_size, language=language)
+            vocab_rows.append(vocab_row)
+
+        # Save progress bar stats tracking doc size and vocab size.
+        if save_progress_dir:
+            self.save_vocab_stats(vocab_rows, text_column, save_progress_dir)
+
+    def build_vocab_comparison_plots(self, document_df, save_progress_dir, sampling=1):
+        document_df = document_df.sample(frac=sampling)
+        vocab_df = DataFrame([])
+
+        for text_column in ["docstring", "code"]:
+            self.fit_tokenizer_in_chunks(document_df, text_column=text_column, save_progress_dir=save_progress_dir)
+            text_path = self.get_text_vocab_path(text_column, save_progress_dir)
+            text_vocab_df = read_csv(text_path)
+            vocab_df = concat([vocab_df, text_vocab_df])
+
+        return vocab_df
 
     def build_anchor_sequence_inds(self, document_tokens):
         '''
