@@ -1,5 +1,8 @@
 import sys
 import os
+from os.path import join
+
+import json
 
 from pathlib import Path
 
@@ -123,12 +126,9 @@ class TransformerEncoder(Model):
             self.build_positional_encoding()
 
     def get_config(self):
-        config = super().get_config()
-        config["input_dims"] = self.input_dims
-        config["output_dims"] = self.output_dims
-        config['self_attention_args'] = self.self_attention_args
-        config['normalization_args'] = self.normalization_args
-        config["embedding_args"] = self.embedding_args
+        config = {"input_dims": self.input_dims, "output_dims": self.output_dims, "embedding_args": self.embedding_args,
+                  "attention_args": self.self_attention_args, "normalization_args": self.normalization_args,
+                  "dropout_args": self.dropout_args, "use_positional_encodings": self.use_positional_encodings, "sequence_length": self.sequence_length}
         return config
 
     def build_positional_encoding(self):
@@ -177,7 +177,8 @@ class TransformerDecoder(Layer):
         self.self_attention = MultiHeadAttention(**self.self_attention_args)
         self.encoder_attention_args.update(encoder_attention_args)
         self.encoder_output_attention = MultiHeadAttention(**self.encoder_attention_args)
-        self.pwff = PWFF(**pwff_args)
+        self.pwff_args = pwff_args
+        self.pwff = PWFF(**self.pwff_args)
         self.normalization_args = normalization_args
         self.normalization = LayerNormalization(**self.normalization_args)
         self.dropout_args.update(dropout_args)
@@ -189,9 +190,10 @@ class TransformerDecoder(Layer):
             self.build_positional_encoding()
 
     def get_config(self):
-        config = super().get_config()
-        config['self_attention_args'] = self.self_attention_args
-        config['normalization_args'] = self.normalization_args
+        config = {"embedding_args": self.embedding_args, "self_attention_args": self.self_attention_args,
+                  "pwff_args": self.pwff_args, "encoder_attention_args": self.encoder_attention_args,
+                  "dropout_args": self.dropout_args, "normalization_args": self.normalization_args,
+                  "use_positional_encodings": self.use_positional_encodings}
         return config
 
     def build_positional_encoding(self):
@@ -305,7 +307,6 @@ class RNNEncoder(Model):
         self.embedding_args.update(embedding_args)
         self.embedding_args["input_dim"] = input_dims
         self.embedding = Embedding(**self.embedding_args)
-        print(f'UPDATE: Embedding config = {self.embedding.get_config()}.')
         self.model_args.update(model_args)
 
         # Returns the entire sequence of hidden states, rather than just the most recent one.
@@ -323,12 +324,8 @@ class RNNEncoder(Model):
         self.output_dims = self.model_args["units"]
 
     def get_config(self):
-        config = super().get_config()
-        config['embedding_args'] = self.embedding_args
-        config['model_args'] = self.model_args
-        config["input_dims"] = self.input_dims
-        config["output_dims"] = self.output_dims
-        config["architecture"] = self.architecture
+        config = {"embedding_args": self.embedding_args, 'model_args': self.model_args, 'input_dims': self.input_dims,
+                  'output_dims': self.output_dims, 'architecture': self.architecture}
         return config
 
     @classmethod
@@ -340,12 +337,21 @@ class RNNEncoder(Model):
             return cls({})
 
     def call(self, inputs):
+        '''
+        Inputs
+        inputs: Either a 2D, shape = (sequence length x input dim) tensor, or 3D, shape = (batch x seq length x input dim) tensor.
+
+        Outputs
+        encoded_inputs: Either a 2D, shape = (sequence length x output_dims) tensor, or 2D, shape = (batch x seq length x
+                        output dims) tensor. Encodings are recursively made through an RNN. Each sequence has a full
+                        output sequence of vectors {v_t} at time t that reflects context of past hidden states throughout (0,...t-1).
+        '''
+
         embedded_inputs = self.embedding(inputs)
 
         if get_rank(embedded_inputs) == 2:
             embedded_inputs = tf.expand_dims(embedded_inputs, axis=0)
 
-        #TODO: This is probably the cause of zero outputs for loaded RNNEncoder. Change to tf function and test call after loading.
         elif not get_rank(embedded_inputs):
             empty_outputs = zeros(self.output_dims)
             return empty_outputs
@@ -396,8 +402,7 @@ class DeClutrContrastive(Model):
     def __init__(self, batch_size, pretrained_encoder=None, pretrained_encoder_name=None, encoder_config={},
                  encoder_model='rnn', input_dims=None, models_directory="models", model_id='test', visualize_tensors=False,
                  sequence_summarization="average", use_positional_encodings=False):
-
-        super().__init__()
+        super(DeClutrContrastive, self).__init__()
         self.pretrained_encoder_name = pretrained_encoder_name
 
         if encoder_model not in self.SUPPORTED_ENCODERS:
@@ -417,6 +422,7 @@ class DeClutrContrastive(Model):
         self.softmax = Softmax(axis=0)
         self.model_id = model_id
         self.build_directory(models_directory)
+        self.save_config_to_directory()
         self.visualize_tensors = visualize_tensors
         self.tensor_visualizer = TensorVisualizer(tf_model_dir=self.model_dir, num_axes=2) if self.visualize_tensors else None
         self.__sequence_summarization = self.get_sequence_summarization(sequence_summarization)
@@ -424,16 +430,31 @@ class DeClutrContrastive(Model):
         self.encoder_config["use_positional_encodings"] = self.use_positional_encodings
         self.default_outputs = zeros(self.batch_size)
 
+    def get_config(self):
+        config = {"embedding_args": self.embedding_args, "encoder_config": self.encoder_config, "model_id": self.model_id,
+                  "batch_size": self.batch_size, "encoder_model": self.encoder_model}
+        return config
+
     def build_directory(self, model_directory):
-        self.model_dir = os.path.join(model_directory, self.model_id)
+        self.model_dir = join(model_directory, self.model_id)
         print(f'UPDATE: Creating model directory {self.model_dir}.')
         Path(self.model_dir).mkdir(exist_ok=True, parents=True)
+
+    def save_config_to_directory(self):
+        config = self.get_config()
+        self.config_path = join(self.model_dir, "config.txt")
+
+        with open(self.config_path, "w") as config_file:
+            config_str = json.dumps(str(config))
+            config_file.write(config_str)
 
     def initialize_encoder(self, pretrained_encoder, encoder_model):
         if pretrained_encoder and not self.pretrained_encoder_name:
             raise ValueError(f'ERROR: Pre-trained encoder provided without name. ')
 
         encoder = pretrained_encoder if pretrained_encoder else self.SUPPORTED_ENCODERS[encoder_model](**self.encoder_config)
+        encoder_config = encoder.get_config()
+        print(f"UPDATE: Encoder with config = {encoder_config} has been built. ")
         return encoder, encoder_model
 
     def get_sequence_summarization(self, value):
@@ -455,14 +476,6 @@ class DeClutrContrastive(Model):
     def build_einsum_layer(self):
         einsum_layer = EinsumDense(equation='k,ik->i', output_shape=(self.batch_size))
         return einsum_layer
-
-    def get_config(self):
-        config = super().get_config()
-        config['embedding_args'] = self.embedding_args
-        config['encoder_config'] = self.encoder_config
-        config['model_id'] = self.model_id
-        config['batch_size'] = self.batch_size
-        return config
 
     @classmethod
     def from_config(cls, config, custom_objects=None):
