@@ -369,7 +369,7 @@ class DeClutrTrainer(SequenceProcessor):
         document_df = self.filter_document_df(document_df)
         self.chunk_count = math.ceil(len(document_df) / self.chunk_size)
 
-        if self.save_training_data:
+        if self.save_training_data and self.sampling == 1:
             training_data_path = join(self.model_dir, "training_data.csv")
             print(f"UPDATE: Saving training document df to {training_data_path}.")
             document_df.to_csv(training_data_path, index=False)
