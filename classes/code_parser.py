@@ -21,6 +21,9 @@ class CodeParser():
     CODE_EXTENSIONS = [".py", ".java", ".c"]
     codesearch_columns = ["code", "path", "url", "language", "docstring"]
 
+    # Essential columns whose nan values will be dropped from parsed df.
+    DROP_NAN_COLS = ["code", "docstring"]
+
     def __init__(self, programming_language='all', subset='train', codesearch_columns=[]):
         self.programming_language = programming_language
         codesearch_prefix = f'{self.programming_language}_{subset}_' if self.programming_language != 'all' else f'_{subset}_'
@@ -92,6 +95,7 @@ class CodeParser():
         '''
 
         next_script_directories = self.get_subdirs(script_directory)
+        print(f"UPDATE: Next script directories for {script_directory}: {next_script_directories}.")
 
         for next_script_directory in next_script_directories:
             new_script_df = self.code_directory_to_df(next_script_directory)
@@ -115,6 +119,18 @@ class CodeParser():
 
         return script_df
 
+    def drop_all_nans(self, script_df):
+        rows_before = len(script_df)
+
+        if not rows_before:
+            return script_df
+
+        script_df.info()
+        script_df.dropna(subset=self.DROP_NAN_COLS, inplace=True)
+        rows_after = len(script_df)
+        print(f"UPDATE: CodeParser dropped {rows_before - rows_after} rows with nan values in {self.DROP_NAN_COLS}.")
+        return script_df
+
     def code_directory_to_df(self, script_directory, shuffle=True):
         '''
         Finds scripts of the parser's code type in input <script_directory>. Then, read these scripts
@@ -132,6 +148,7 @@ class CodeParser():
         '''
 
         script_paths = self.get_all_script_paths(script_directory)
+        print(f"UPDATE: script paths = {script_paths} for directory = {script_directory}")
         script_df = []
 
         for i, script_path in enumerate(script_paths):
@@ -148,6 +165,7 @@ class CodeParser():
 
         # Shuffle the dataframe so that chunks taken from it are unbiased.
         script_df = script_df.sample(frac=1) if shuffle else script_df
+        script_df = self.drop_all_nans(script_df)
         return script_df
 
     def parse_codesearch_payload(self, codesearch_payload):

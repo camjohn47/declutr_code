@@ -182,5 +182,4 @@ class QueryEncoderRetriever():
         self.update_cached_queries(results_df)
         return results_df
 
-
 #%%
