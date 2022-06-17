@@ -656,7 +656,27 @@ class DeclutrMaskedLanguage(DeClutrContrastive):
         masked_vocabulary_probs = self.masked_vocabulary_dense(masked_embeddings)
         return masked_vocabulary_probs
 
+class ScriptTranslator(Layer):
+    def __init__(self, query_encoder, script_encoder, batch_size):
+        self.query_encoder = query_encoder
+        self.query_encoder_config = self.query_encoder.get_config()
+        self.script_encoder = script_encoder
+        self.script_encoder_config = self.script_encoder.get_config()
+        self.output_dims = self.script_encoder_config["output_dims"]
+        self.translation_mat = Dense(self.output_dims)
 
+        # Amount of contrasted scripts.
+        self.batch_size = batch_size
+        self.query_script_similarity = EinsumDense(equation="ij,j->i", output_shape=(self.batch_size), activation='relu')
+
+    def get_config(self):
+        config = dict(query_encoder_config=self.query_encoder_config, script_encoder_config=self.script_encoder_config)
+        return config
+
+    def __call__(self, script_embeddings, query_embedding):
+        translated_embeddings = self.translation_mat(script_embeddings)
+        script_query_similarities = self.query_script_similarity(script_embeddings, translated_embeddings)
+        return script_query_similarities
 
 
 
