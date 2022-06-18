@@ -8,7 +8,7 @@ from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 import tensorflow as tf
 from tensorflow.data import Dataset
-from tensorflow_probability.python.distributions import Beta
+from tensorflow_probability.python.distributions import Beta, Uniform
 from tensorflow.keras.utils import Progbar
 from tensorflow import type_spec_from_value
 
@@ -17,7 +17,7 @@ import random
 from functools import partial
 from itertools import chain
 
-from modules.common_funcs import find_code_df_methods, make_path_directories
+from modules.common_funcs import find_code_df_methods, make_path_directories, MAIN_DIR
 
 import math
 
@@ -42,8 +42,7 @@ class SequenceProcessor():
     positive_sampling_args = dict(concentration1=2, concentration0=4)
 
     # Where to save tokenizers and search for pre-trained ones.
-    TOKENIZER_DIR = "../tokenizers"
-
+    TOKENIZER_DIR = join(MAIN_DIR, "tokenizers")
     ANIMATION_INPUT_KEYS = ["document_texts", "anchor_index", "anchor_start", "anchor_end"]
 
     def __init__(self, loss_objective="declutr_contrastive", tokenizer_args={}, min_anchor_length=32, max_anchor_length=64, anchor_args={},
@@ -71,6 +70,7 @@ class SequenceProcessor():
         self.positive_sample_distribution = Beta(**self.positive_sampling_args)
         self.chunk_size = chunk_size
         self.batch_size = 2 * self.documents_per_batch * self.anchors_per_document - 1
+        self.batch_uniform_distribution = Uniform(low=0, high=self.batch_size-1)
 
         # Initialize tokenizer depending on whether a pre-trained one is used.
         self.use_pretrained_tokenizer = use_pretrained_tokenizer
@@ -180,8 +180,8 @@ class SequenceProcessor():
                     print(f"UPDATE: Successfully loaded found tokenizer.")
                 except:
                     print(f"WARNING: Failed to load JSON Keras tokenizer found in {tokenizer_path}.")
-
         if not tokenizer:
+            print(f"UPDATE: Tokenizer path {tokenizer_path} doesn't exist. Initializing tokenizer now.")
             tokenizer = self.initialize_tokenizer()
 
         return tokenizer
@@ -470,6 +470,18 @@ class SequenceProcessor():
 
         return input_sequences
 
+    def add_animation_data(self, document_chunk, input_sequences, anchor_index):
+        '''
+        Add some intermediate variables\steps of the batch-making process for making visuals.
+        '''
+
+        document_texts = document_chunk["docstring"].values
+        input_sequences["document_texts"] = document_texts
+        input_sequences["anchor_index"] = anchor_index
+        input_sequences["anchor_start"] = self.anchor_start
+        input_sequences["anchor_end"] = self.anchor_end
+        return input_sequences
+
     # TO DO: Test training time and memory usage for batch yielding vs. dataset.
     def yield_declutr_contrastive_batches(self, document_df, add_columns=[]):
         '''
@@ -478,7 +490,8 @@ class SequenceProcessor():
         add_columns (list):      Columns from document_df to include with each batch of sequences.
 
         Outputs
-        declutr_dataset (dict): Dictionary with batches of positive and negative input token sequences used for training.
+        input_sequences (dict): Dictionary with batches of positive and negative input token sequences used for training.
+        batch_labels (Tensor):  Tensor with binary labels: 0 -> negative sequence, 1 -> positive sequence.
         '''
 
         # Pre-process and tokenize the document df.
@@ -496,19 +509,14 @@ class SequenceProcessor():
             input_sequences = dict(anchor_sequence=anchor, contrasted_sequences=contrastive_inputs)
             input_sequences = self.add_columns(input_sequences, document_chunk, add_columns, anchor_index)
 
-            # Provide intermediate variables\steps of the process for making visuals.
             if self.animate_batch_prep:
-                document_texts = document_chunk["docstring"].values
-                input_sequences["document_texts"] = document_texts
-                input_sequences["anchor_index"] = anchor_index
-                input_sequences["anchor_start"] = self.anchor_start
-                input_sequences["anchor_end"] = self.anchor_end
+                input_sequences = self.add_animation_data(document_chunk, input_sequences, anchor_index)
 
             yield input_sequences, batch_labels
 
     def yield_declutr_mmm_batches(self, document_df):
         '''
-        Add masked anchor to inputs and labels of masked tokens to labels. This allows for masked method modeling.
+        Add masked anchor to inputs and labels of masked tokens to labels. This enables masked method modeling.
         '''
 
         if not self.method_vocabulary:
@@ -531,10 +539,32 @@ class SequenceProcessor():
 
             yield mmm_inputs, mmm_labels
 
+    def get_anchor_docstring_and_ind(self, document_chunk):
+        anchor_index = self.batch_uniform_distribution.sample([1])
+        anchor_docstring = document_chunk["docstring"].values[anchor_index]
+        return anchor_docstring, anchor_index
+
+    def yield_translator_batches(self, document_df):
+        '''
+        Inputs
+        Returns generic batches of randomly sampled full scripts for training a contrastive translator model.
+        '''
+
+        # Pre-process and tokenize the document df.
+        self.cardinality_estimate = len(document_df)
+
+        for i, document_chunk in enumerate(self.generate_df_in_batches(document_df)):
+            # Build input sequences and a label sequence describing their classes as generator output.
+            tokens_chunk = document_chunk['document_tokens']
+            contrasted_scripts = tokens_chunk.sample(n=self.batch_size).values
+            anchor_docstring, anchor_index = self.get_anchor_docstring_and_ind(document_chunk)
+            batch_labels = tf.stack([0 if i != anchor_index else 1 for i in range(self.batch_size)])
+            input_sequences = dict(contrasted_scripts=contrasted_scripts, anchor_docstring=anchor_docstring)
+            yield input_sequences, batch_labels
+
     def count_declutr_mmm_batches(self, document_df):
         '''
-        Add masked anchor to inputs and labels of masked tokens to labels. This allows for masked method
-        modeling.
+        Count the MMM batches available from <document_df>.
         '''
 
         batch_count = 0
