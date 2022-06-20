@@ -6,6 +6,7 @@ import numpy as np
 from tensorflow.keras.utils import Progbar
 
 from modules.common_funcs import reduce_matrix
+from classes.sequence_models import ScriptTranslator
 
 from pandas import DataFrame, read_csv, concat
 import re
@@ -182,4 +183,22 @@ class QueryEncoderRetriever():
         self.update_cached_queries(results_df)
         return results_df
 
+    def build_translator_nn(self, batch_size=64):
+        '''
+        Build a translator neural network that represents a similarity function f(query embedding, script embedding).
+        Motivation is to have some communication between the script embedding vector space and query embedding vector space
+        to enhance script retrieval.
+        '''
+
+        query_encoder = self.query_deployer.encoder
+        script_encoder = self.script_deployer.encoder
+        script_translator = ScriptTranslator(query_encoder=query_encoder, script_encoder=script_encoder, batch_size=batch_size)
+        return script_translator
+
 #%%
+if __name__ == "__main__":
+    query_encoder_id = "test"
+    script_encoder_id = "test"
+    retriever = QueryEncoderRetriever(query_encoder_id=query_encoder_id, script_encoder_id=script_encoder_id)
+    translator = retriever.build_translator()
+    print(f"UPDATE: Translator config = {translator.get_config()}")
