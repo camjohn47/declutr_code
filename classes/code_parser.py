@@ -126,7 +126,11 @@ class CodeParser():
 
         script_df.dropna(subset=self.DROP_NAN_COLS, inplace=True)
         rows_after = len(script_df)
-        print(f"UPDATE: CodeParser dropped {rows_before - rows_after} rows with nan values in {self.DROP_NAN_COLS}.")
+        dropped_rows = rows_before - rows_after
+
+        if dropped_rows:
+            print(f"UPDATE: CodeParser dropped {dropped_rows} rows with nan values in {self.DROP_NAN_COLS}.")
+
         return script_df
 
     def code_directory_to_df(self, script_directory, shuffle=True):
