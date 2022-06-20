@@ -49,10 +49,9 @@ def set_path_to_main(path):
 
     # Shift up in the working directory tree if not currently in main directory.
     full_execution_path = join(curr_dir, path) if curr_dir_tail == "declutr_code" else os.path.join(curr_dir_head, path)
-
     return full_execution_path
 
-MAIN_DIR = dirname(os.getcwd())
+MAIN_DIR = os.getcwd()
 TRAINING_DF_PATH = join(MAIN_DIR, "processed_data", "training_data.csv")
 TRAINING_DF_PATH = set_path_to_main(TRAINING_DF_PATH)
 
