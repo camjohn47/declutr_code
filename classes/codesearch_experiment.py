@@ -1,5 +1,6 @@
 from experiment import Experiment
-from modules.common_funcs import get_code_df, process_fig
+from modules.common_funcs import get_code_df, process_fig, MAIN_DIR
+from classes.code_parser import CodeParser
 from retrieval_models import QueryEncoderRetriever
 
 from pandas import DataFrame, concat
@@ -9,8 +10,7 @@ from plotly.graph_objects import Scatter, Figure
 
 from numpy import squeeze
 
-from os.path import join
-from pathlib import Path
+from os.path import join, dirname
 from re import sub
 
 class CodeSearchExperiment(Experiment):
@@ -19,9 +19,10 @@ class CodeSearchExperiment(Experiment):
     ANSWER_COL = QueryEncoderRetriever.ANSWER_COL
     EXPERIMENTS_DIRECTORY = join(Experiment.EXPERIMENTS_DIRECTORY, "CodeSearch")
     top_k_fig_title = "How Often Described Code was in Top K Retrieved Scripts"
+    MAIN_DIR = MAIN_DIR
 
     def __init__(self, variable_arg, variable_val, variable_domain, constant_arg_vals, sampling=1, add_constants_to_id=None,
-                 retrieved_docs=50):
+                 retrieved_docs=50, code_parser_args={}):
         self.variable_arg = variable_arg
 
         if self.variable_arg not in self.VARIABLE_CHOICES:
@@ -44,6 +45,9 @@ class CodeSearchExperiment(Experiment):
         self.add_constants_to_id = add_constants_to_id
         self.experiment_id = self.build_experiment_id()
         self.retrieved_docs = retrieved_docs
+        self.code_parser_args = code_parser_args
+        self.code_parser = CodeParser()
+
         self.initialize_experiment_directory(experiment_class="CodeSearch")
         self.results_dir = join(self.experiment_directory, "results")
 
@@ -57,7 +61,8 @@ class CodeSearchExperiment(Experiment):
 
     def build_config(self):
         self.config = {"constant_arg": self.constant_arg, "variable_arg": self.variable_arg,
-                       "variable_domain": self.variable_domain, "retrieved_docs": self.retrieved_docs}
+                       "variable_domain": self.variable_domain, "retrieved_docs": self.retrieved_docs,
+                       "code_parser_args": self.code_parser_args}
 
     def save_config(self):
         self.config_path = join(self.experiment_directory, "config.txt")
@@ -76,7 +81,7 @@ class CodeSearchExperiment(Experiment):
             query_encoder_args = {self.variable_arg: variable_value, self.constant_arg: self.constant_arg_val,
                                   "retrieved_docs": self.retrieved_docs}
             query_encoder_retriever = QueryEncoderRetriever(**query_encoder_args)
-            code_df = get_code_df(sampling=self.sampling)
+            code_df = self.code_parser.code_directory_to_df(self.MAIN_DIR)
             code_df = query_encoder_retriever.preprocess(code_df, **filter_args)
             code_df = query_encoder_retriever.transform(code_df)
             code_df[self.variable_arg] = [variable_value] * len(code_df)
