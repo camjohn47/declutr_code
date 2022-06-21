@@ -49,7 +49,7 @@ class SequenceProcessor():
                  positive_sampling_args={}, anchors_per_document=1, num_positive_samples=1, documents_per_batch=32,
                  chunk_size=int(1.0e3), max_document_length=512, use_pretrained_tokenizer=False, tokenizer_type=None,
                  pretrained_tokenizer=None, sample_documents_with_replacement=False, pad_sequences=False, mmm_sample=.1,
-                 animate_batch_prep=False):
+                 animate_batch_prep=False, min_fitted_doc_count=1.0e5):
         self.min_anchor_length = min_anchor_length
         self.max_anchor_length = max_anchor_length
 
@@ -70,7 +70,7 @@ class SequenceProcessor():
         self.positive_sample_distribution = Beta(**self.positive_sampling_args)
         self.chunk_size = chunk_size
         self.batch_size = 2 * self.documents_per_batch * self.anchors_per_document - 1
-        self.batch_uniform_distribution = Uniform(low=0, high=self.batch_size-1)
+        self.document_sampler = Uniform(low=0, high=self.documents_per_batch)
 
         # Initialize tokenizer depending on whether a pre-trained one is used.
         self.use_pretrained_tokenizer = use_pretrained_tokenizer
@@ -104,6 +104,9 @@ class SequenceProcessor():
         # Indicates whether a pretrained tokenizer was found. Updated during tokenizer search. If found and loaded,
         # tokenization fitting will be skipped by default (this can take a few hours on CodeSearch dataset).
         self.loaded_pretrained_tokenizer = False
+
+        # Minimum fitted document count for a loaded tokenizer to bypass fitting.
+        self.min_tokenizer_doc_count = min_fitted_doc_count
 
     def initialize_tokenizer(self):
         # If pre-trained tokenizer is specified, the type and tokenizer itself must be provided.
@@ -165,9 +168,22 @@ class SequenceProcessor():
         tokenizer_path = os.path.join(self.TOKENIZER_DIR, f"{text_column}_tokenizer.json")
         return tokenizer_path
 
+    def check_loaded_tokenizer_quality(self):
+        '''
+        Ensure loaded tokenizer has been trained on sufficiently many docs.
+        '''
+
+        tokenizer_config = self.tokenizer.get_config()
+        doc_count = tokenizer_config["document_count"]
+
+        if doc_count < self.min_tokenizer_doc_count:
+            print(f"WARNING: Loaded tokenizer trained on only {doc_count} documents < minimum = {self.min_tokenizer_doc_count}.")
+            return False
+        else:
+            return True
+
     def search_for_tokenizer(self, text_column):
         tokenizer_path = self.get_tokenizer_path(text_column).replace(".json", ".pickle")
-        tokenizer = None
 
         if os.path.exists(tokenizer_path):
             print(f"UPDATE: Found tokenizer path {tokenizer_path}.")
@@ -179,8 +195,9 @@ class SequenceProcessor():
                     self.loaded_pretrained_tokenizer = True
                     print(f"UPDATE: Successfully loaded found tokenizer.")
                 except:
-                    print(f"WARNING: Failed to load JSON Keras tokenizer found in {tokenizer_path}.")
-        if not tokenizer:
+                    print(f"WARNING: Failed to load JSON Keras tokenizer found in {tokenizer_path}. Creating new one.")
+                    tokenizer = self.initialize_tokenizer()
+        else:
             print(f"UPDATE: Tokenizer path {tokenizer_path} doesn't exist. Initializing tokenizer now.")
             tokenizer = self.initialize_tokenizer()
 
@@ -210,9 +227,12 @@ class SequenceProcessor():
     def fit_tokenizer_in_chunks(self, document_df, text_column, chunk_size=1.0e3, save_progress_dir=None):
         if not self.tokenizer:
             self.tokenizer = self.search_for_tokenizer(text_column)
+            if text_column == "code":
+                print(f"UPDATE: Loaded tokenizer config = {self.tokenizer.get_config()}.")
         if self.loaded_pretrained_tokenizer:
-            print(f"UPDATE: Skipping tokenizer fitting since a pre-trained tokenizer was found and loaded.")
-            return
+            if self.check_loaded_tokenizer_quality():
+                print(f"UPDATE: Skipping tokenizer fitting since a quality pre-trained tokenizer was found and loaded.")
+                return
 
         document_count = len(document_df)
         chunk_count = math.ceil(document_count / chunk_size)
@@ -393,10 +413,14 @@ class SequenceProcessor():
         Convert anchor and contrasted sequences into tensors of types that vary by model architecture.
         '''
 
-        batch_input_sequences = tf.ragged.stack(batch_input_sequences) if not self.pad_sequences else tf.stack(batch_input_sequences)
-        batch_input_sequences = tf.cast(batch_input_sequences, tf.int32)
+        batch_input_sequences = self.convert_input_sequences(batch_input_sequences)
         anchor_sequence = tf.cast(anchor_sequence, tf.int32)
         return anchor_sequence, batch_input_sequences
+
+    def convert_input_sequences(self, batch_input_sequences):
+        batch_input_sequences = tf.ragged.stack(batch_input_sequences) if not self.pad_sequences else tf.stack(batch_input_sequences)
+        batch_input_sequences = tf.cast(batch_input_sequences, tf.int32)
+        return batch_input_sequences
 
     def process_batch_labels(self, batch_labels):
         batch_labels = tf.cast(batch_labels, tf.int32)
@@ -540,7 +564,7 @@ class SequenceProcessor():
             yield mmm_inputs, mmm_labels
 
     def get_anchor_docstring_and_ind(self, document_chunk):
-        anchor_index = self.batch_uniform_distribution.sample([1])
+        anchor_index = int(self.document_sampler.sample([1]))
         anchor_docstring = document_chunk["docstring"].values[anchor_index]
         return anchor_docstring, anchor_index
 
@@ -555,10 +579,9 @@ class SequenceProcessor():
 
         for i, document_chunk in enumerate(self.generate_df_in_batches(document_df)):
             # Build input sequences and a label sequence describing their classes as generator output.
-            tokens_chunk = document_chunk['document_tokens']
-            contrasted_scripts = tokens_chunk.sample(n=self.batch_size).values
+            contrasted_scripts = document_chunk['script_tokens'].values
             anchor_docstring, anchor_index = self.get_anchor_docstring_and_ind(document_chunk)
-            batch_labels = tf.stack([0 if i != anchor_index else 1 for i in range(self.batch_size)])
+            batch_labels = tf.stack([0 if i != anchor_index else 1 for i in range(self.documents_per_batch)])
             input_sequences = dict(contrasted_scripts=contrasted_scripts, anchor_docstring=anchor_docstring)
             yield input_sequences, batch_labels
 
@@ -672,6 +695,10 @@ class SequenceProcessor():
         return self.tokenizer.texts_to_sequences(documents)
 
     def cache_tokenizer(self, text_column):
+        if not self.check_loaded_tokenizer_quality():
+            print(f"WARNING: {text_column.capitalize()} tokenizer caching skipped due to poor quality.")
+            return
+
         tokenizer_path = self.get_tokenizer_path(text_column)
         make_path_directories(tokenizer_path)
         json_tokenizer = self.tokenizer.to_json()
@@ -689,3 +716,5 @@ class SequenceProcessor():
 
 
 
+
+#%%

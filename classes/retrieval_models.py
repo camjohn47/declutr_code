@@ -200,5 +200,5 @@ if __name__ == "__main__":
     query_encoder_id = "test"
     script_encoder_id = "test"
     retriever = QueryEncoderRetriever(query_encoder_id=query_encoder_id, script_encoder_id=script_encoder_id)
-    translator = retriever.build_translator()
+    translator = retriever.build_translator_nn()
     print(f"UPDATE: Translator config = {translator.get_config()}")
