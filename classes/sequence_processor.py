@@ -227,8 +227,6 @@ class SequenceProcessor():
     def fit_tokenizer_in_chunks(self, document_df, text_column, chunk_size=1.0e3, save_progress_dir=None):
         if not self.tokenizer:
             self.tokenizer = self.search_for_tokenizer(text_column)
-            if text_column == "code":
-                print(f"UPDATE: Loaded tokenizer config = {self.tokenizer.get_config()}.")
         if self.loaded_pretrained_tokenizer:
             if self.check_loaded_tokenizer_quality():
                 print(f"UPDATE: Skipping tokenizer fitting since a quality pre-trained tokenizer was found and loaded.")
