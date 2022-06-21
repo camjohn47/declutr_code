@@ -656,8 +656,9 @@ class DeclutrMaskedLanguage(DeClutrContrastive):
         masked_vocabulary_probs = self.masked_vocabulary_dense(masked_embeddings)
         return masked_vocabulary_probs
 
-class ScriptTranslator(Layer):
+class ScriptTranslator(Model):
     def __init__(self, query_encoder, script_encoder, batch_size):
+        super().__init__()
         self.query_encoder = query_encoder
         self.query_encoder_config = self.query_encoder.get_config()
         self.script_encoder = script_encoder
@@ -672,6 +673,10 @@ class ScriptTranslator(Layer):
     def get_config(self):
         config = dict(query_encoder_config=self.query_encoder_config, script_encoder_config=self.script_encoder_config)
         return config
+
+    def get_script_encoder_model(self):
+        script_encoder_model = self.script_encoder_config["encoder_model"]
+        return script_encoder_model
 
     def __call__(self, script_embeddings, query_embedding):
         translated_embeddings = self.translation_mat(script_embeddings)
